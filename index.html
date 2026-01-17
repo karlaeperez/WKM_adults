@@ -18,7 +18,7 @@
       margin: 0;
     }
     .recording-bg {
-      background-color: #fff8f9 !important;
+      background-color: #ffdce2 !important;
       transition: background-color 0.5s ease;
     }
 
@@ -49,29 +49,54 @@
     `
   };
 
-  const instructions_general = {
-    type: jsPsychHtmlKeyboardResponse,
-    stimulus: `
-    <p>Imagine you've just met someone new in a friendly, casual setting<br>(<i>like waiting in line for coffee or at a casual get-together</i>)<br>and you’ve just exchanged names.</p> 
-    <p> What are some other things you’d like to say about yourself?</p>
-    <p><span style="color:gray;">Press any key to proceed.</span></p>
-    `
-  };
-
   const instructions_audio = {
     type: jsPsychHtmlKeyboardResponse,
     stimulus: `
-    <p>In this task you will be asked to describe <b>12 things about you</b>, one at a time.
+    <p>In this task you will be asked to share <b>12 things about you</b>, one at a time!
     <br>You will have up to <b>3 minutes</b> to audio record your answer for each item.</p>
     <p>There are no right or wrong answers, we’re just curious what people say about themselves!</p>
-    <p><span style="color:gray;">Press any key to begin.</span></p>
+    <p><span style="color:gray;">Press any key to proceed.</span></p>
     `
   };
 
   const init_mic = {
     type: jsPsychInitializeMicrophone
-  }
+  };
 
+  const practice_instructions = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: "<strong><span style='color:red;'>First, let's practice recording an audio response!</span></strong><br>For this practice trial, simply speak 'A, B, C' or 'Testing 1, 2, 3' into the microphone.<br>When you are ready to practice recording your response, click 'Begin Recording.'",
+    choices: ["Begin Recording"]
+  };
+
+  const practice_audio = {
+    type: jsPsychHtmlAudioResponse,
+    stimulus: "<strong>The prompt will appear here during the real trials.</strong><span style='color:gray;'><br>To provide a response, simply speak into your device.<br>The recording will stop once you hit 'Finish Recording'.</span><br><span style='color:red;'> Practice recording in progress...</span>",
+    recording_duration: 180000,
+    show_done_button: true,
+    done_button_label: "Finish Recording",
+    on_load: function() {
+      document.body.classList.add('recording-bg');
+    },
+    on_finish: function(data) {
+      document.body.classList.remove('recording-bg');
+    }
+  };
+
+  const start_trials = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: "<strong>Great! You are ready to begin the real trials.</strong><br><span style='color:grey;'>When you are ready to start the real trials, click any key to proceed.</span>"
+  };
+
+  const instructions_general = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+    <p>Imagine you've just met someone new in a friendly, casual setting<br>(<i>like waiting in line for coffee or at a casual get-together</i>)<br>and you’ve just exchanged names.</p> 
+    <p> <b>What are some other things you’d like to say about yourself?</b></p>
+    <p><span style="color:gray;">Press any key to proceed.</span></p>
+    `
+  };
+   
   var audio_trials = {
     timeline: [
         {
@@ -98,11 +123,55 @@
         }
     ],
     timeline_variables: [
-        {instruction: 'What would you like to say about you?<span style="color:gray;"> (1 out of 12)</span>', stimulus_test: 'What would you like to say about you?<span style="color:gray;"> (1 out of 12)</span><br><span style="color:red;"> Recording in progress...</span>'},
-        {instruction: 'What would you like to say about you?<span style="color:gray;"> (2 out of 12)</span>', stimulus_test: 'What would you like to say about you?<span style="color:gray;"> (2 out of 12)</span><br><span style="color:red;"> Recording in progress...</span>'},
-        {instruction: 'What would you like to say about you?<span style="color:gray;"> (3 out of 12)</span>', stimulus_test: 'What would you like to say about you?<span style="color:gray;"> (3 out of 12)</span><br><span style="color:red;"> Recording in progress...</span>'}
+        {instruction: "What would you like to say about you?<span style='color:gray;'> (1 out of 12)</span>", stimulus_test: "What would you like to say about you?<span style='color:gray;'> (1 out of 12)</span><br><span style='color:red;'> Recording in progress...</span>"},
+        {instruction: "What would you like to say about you?<span style='color:gray;'> (2 out of 12)</span>", stimulus_test: "What would you like to say about you?<span style='color:gray;'> (2 out of 12)</span><br><span style='color:red;'> Recording in progress...</span>"},
+        {instruction: "What would you like to say about you?<span style='color:gray;'> (3 out of 12)</span>", stimulus_test: "What would you like to say about you?<span style='color:gray;'> (3 out of 12)</span><br><span style='color:red;'> Recording in progress...</span>"}
     ]
   }
+
+  const instructions_fluency = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+    <p>Thank you for sharing about yourself!</p>
+    <br>Before we finish, I have one more task for you to complete.
+    <br> I am going to give you a category, and I want you to name <b>12 things</b> that belong to that category. 
+    <br> For example, if I said "fruits", you might say "apple", "banana", "grape", etc.</p>
+    <br> Like in the previous trials, <b>please provide only one answer per recording.</b>
+    <p><span style="color:gray;">Press any key to begin.</span></p>
+    `
+  };
+
+  var fluency_trials = {
+    timeline: [
+        {
+            type: jsPsychHtmlButtonResponse,
+            stimulus: jsPsych.timelineVariable('instruction'),
+            choices: ["Begin Recording"]
+        },
+        {
+            type: jsPsychHtmlAudioResponse,
+            stimulus: jsPsych.timelineVariable('stimulus_test'),
+            recording_duration: 180000,
+            show_done_button: true,
+            done_button_label: "Finish Recording",
+            on_load: function() {
+              document.body.classList.add('recording-bg');
+            },
+            on_finish: function(data) {
+              document.body.classList.remove('recording-bg');
+
+              const audio_filename = `${subject_id}_trial_${jsPsych.getProgress().current_trial_global}.webm`;
+              jsPsychPipe.saveBase64Data("fs53x4EAl0QS", audio_filename, data.response);
+              data.response = audio_filename;
+            }
+        }
+    ],
+    timeline_variables: [
+        {instruction: "The category is <b>Animals</b>. <br>Please name one animal per recording—it can be any kind of animal, but please try not to repeat yourself.", stimulus_test: "The category is <b>Animals</b>. <br>Please name an animal.<span style='color:gray;'> (1 out of 12)</span><br><span style='color:red;'> Recording in progress...</span>"},
+        {instruction: "Category: <b>Animals</b>. <br>Please name another animal.", stimulus_test: "Category: <b>Animals</b>. <br>Please name an animal.<span style='color:gray;'> (2 out of 12)</span><br><span style='color:red;'> Recording in progress...</span>"},
+        {instruction: "Category: <b>Animals</b>. <br>Please name another animal.", stimulus_test: "Category: <b>Animals</b>. <br>Please name an animal.<span style='color:gray;'> (3 out of 12)</span><br><span style='color:red;'> Recording in progress...</span>"}
+    ]
+  };
   
   const goodbye = {
     type: jsPsychHtmlButtonResponse,
@@ -118,7 +187,7 @@
     data_string: () => jsPsych.data.get().csv()
   };
 
-  jsPsych.run([welcome, instructions_general, instructions_audio,init_mic, audio_trials, goodbye, save_data]);
+  jsPsych.run([welcome, instructions_audio, init_mic, practice_instructions, practice_audio, start_trials, instructions_general, audio_trials, instructions_fluency, fluency_trials, goodbye, save_data]);
 
 </script>
 
