@@ -7,6 +7,7 @@
   <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@2.1.0"></script>
   <script src="https://unpkg.com/@jspsych/plugin-initialize-microphone@2.1.0"></script>
   <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe"></script>
+  <script src="https://www.google.com/recaptcha/api.js" async defer></script>
   <link rel="stylesheet" href="https://unpkg.com/jspsych@8.2.2/css/jspsych.css">
   <style>
     body.recording-bg {
@@ -41,6 +42,43 @@
     subject: subject_id
   });
 
+  const captcha_resolved = false;
+
+  const captcha_trial = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+        <div style="padding: 20px;">
+            <h3>Security Verification</h3>
+            <p>Please confirm you are human to begin the study.</p>
+            <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+                <div id="g-recaptcha-target"></div>
+            </div>
+        </div>`,
+    choices: ["Begin Study"],
+    on_load: function() {
+        // 1. Find and hide the "Begin Study" button immediately
+        const btn = document.querySelector('#jspsych-html-button-response-button-0');
+        if (btn) btn.style.display = 'none';
+
+        // 2. Wait for the Google library to load, then render
+        function renderCaptcha() {
+            if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.render === 'function') {
+                grecaptcha.render('g-recaptcha-target', {
+                    'sitekey': '6Le_Yk0sAAAAAEK5jvozPPEva_4_9OfSsvEEmq4u', 
+                    'callback': function() {
+                        // 3. Show the button only after the checkbox is clicked
+                        if (btn) btn.style.display = 'inline-block';
+                    }
+                });
+            } else {
+                // If not loaded yet, check again in 500ms
+                setTimeout(renderCaptcha, 500);
+            }
+        }
+        renderCaptcha();
+    }
+};
+
   const welcome = {
     type: jsPsychHtmlKeyboardResponse,
     stimulus: `
@@ -65,6 +103,7 @@
     <p> In a moment, your browser will ask for permission to use your microphone.
     <br>Please click 'Allow' or 'Allow this time' when prompted.
     <br>Make sure to also select the microphone you intend to use, e.g., your device's built-in microphone.</p>
+    <br><span style="color:gray;">Press any key to proceed.</span>
     `
   };
 
@@ -196,7 +235,7 @@
     data_string: () => jsPsych.data.get().csv()
   };
 
-  jsPsych.run([welcome, instructions_audio, audio_permission, init_mic, practice_instructions, practice_audio, start_trials, instructions_general, audio_trials, instructions_fluency, fluency_trials, goodbye, save_data]);
+  jsPsych.run([captcha_trial, welcome, instructions_audio, audio_permission, init_mic, practice_instructions, practice_audio, start_trials, instructions_general, audio_trials, instructions_fluency, fluency_trials, goodbye, save_data]);
 
 </script>
 
