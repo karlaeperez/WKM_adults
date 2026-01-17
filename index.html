@@ -59,6 +59,15 @@
     `
   };
 
+  const audio_permission = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+    <p> In a moment, your browser will ask for permission to use your microphone.
+    <br>Please click 'Allow' or 'Allow this time' when prompted.
+    <br>Make sure to also select the microphone you intend to use, e.g., your device's built-in microphone.</p>
+    `
+  };
+
   const init_mic = {
     type: jsPsychInitializeMicrophone
   };
@@ -187,7 +196,7 @@
     data_string: () => jsPsych.data.get().csv()
   };
 
-  jsPsych.run([welcome, instructions_audio, init_mic, practice_instructions, practice_audio, start_trials, instructions_general, audio_trials, instructions_fluency, fluency_trials, goodbye, save_data]);
+  jsPsych.run([welcome, instructions_audio, audio_permission, init_mic, practice_instructions, practice_audio, start_trials, instructions_general, audio_trials, instructions_fluency, fluency_trials, goodbye, save_data]);
 
 </script>
 
