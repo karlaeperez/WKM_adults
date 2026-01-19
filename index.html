@@ -55,42 +55,37 @@
                 <div id="g-recaptcha-target"></div>
             </div>
         </div>`,
-    choices: ["Begin Study"],
+    choices: ["Proceed"],
     on_load: function() {
+        // 1. Find the jsPsych button and hide it immediately
         const btn = document.querySelector('#jspsych-html-button-response-button-0');
         if (btn) btn.style.display = 'none';
 
-        // Set the callback globally so Google can find it
-        window.onCaptchaSuccess = function() {
-            if (btn) btn.style.display = 'inline-block';
+        // 2. Define the callback function globally so Google can see it
+        // This is the 'correctCaptcha' logic from your link
+        window.correctCaptcha = function() {
+            console.log("Captcha completed!");
+            if (btn) btn.style.display = 'block'; 
         };
 
+        // 3. Render the captcha onto our target div
         function renderCaptcha() {
             const target = document.getElementById('g-recaptcha-target');
             if (typeof grecaptcha !== 'undefined' && grecaptcha.render && target) {
                 grecaptcha.render('g-recaptcha-target', {
                     'sitekey': '6Le_Yk0sAAAAAEK5jvozPPEva_4_9OfSsvEEmq4u', 
-                    'callback': 'onCaptchaSuccess'
+                    'callback': 'correctCaptcha' // Must match the window.function name
                 });
             } else {
+                // If Google script isn't ready yet, wait 200ms and try again
                 setTimeout(renderCaptcha, 200);
             }
         }
         renderCaptcha();
     },
     on_finish: function(data) {
-        // Grab the token before the trial elements are destroyed
-        try {
-            const token = grecaptcha.getResponse();
-            data.captcha_token = token;
-            
-            // If they somehow clicked a hidden button without a token
-            if (!token || token === "") {
-                data.error = "No token generated";
-            }
-        } catch (e) {
-            console.error("Error grabbing captcha token:", e);
-        }
+        // Record the token in your CSV
+        data.captcha_token = grecaptcha.getResponse();
     }
 };
 
