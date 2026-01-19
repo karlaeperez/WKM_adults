@@ -216,7 +216,8 @@
     },
     on_finish: function(data) {
       clearInterval(timerInterval);
-      data.responses = JSON.stringify(response_data);
+      data.response = JSON.stringify(response_data);
+      console.log("Animal Data Saved:", data.response);
     }
   };
 
