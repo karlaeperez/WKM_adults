@@ -57,35 +57,36 @@
         </div>`,
     choices: ["Proceed"],
     on_load: function() {
-        // 1. Find the jsPsych button and hide it immediately
         const btn = document.querySelector('#jspsych-html-button-response-button-0');
         if (btn) btn.style.display = 'none';
 
-        // 2. Define the callback function globally so Google can see it
-        // This is the 'correctCaptcha' logic from your link
-        window.correctCaptcha = function() {
+        // Variable to hold the token globally within this script
+        window.captchaToken = "";
+
+        window.correctCaptcha = function(response) {
             console.log("Captcha completed!");
+            window.captchaToken = response; // Save token immediately
             if (btn) btn.style.display = 'block'; 
         };
 
-        // 3. Render the captcha onto our target div
         function renderCaptcha() {
             const target = document.getElementById('g-recaptcha-target');
             if (typeof grecaptcha !== 'undefined' && grecaptcha.render && target) {
                 grecaptcha.render('g-recaptcha-target', {
                     'sitekey': '6Le_Yk0sAAAAAEK5jvozPPEva_4_9OfSsvEEmq4u', 
-                    'callback': 'correctCaptcha' // Must match the window.function name
+                    'callback': 'correctCaptcha'
                 });
             } else {
-                // If Google script isn't ready yet, wait 200ms and try again
                 setTimeout(renderCaptcha, 200);
             }
         }
         renderCaptcha();
     },
     on_finish: function(data) {
-        // Record the token in your CSV
-        data.captcha_token = grecaptcha.getResponse();
+        // Instead of calling grecaptcha.getResponse() (which causes the error),
+        // we use the token we saved during the callback.
+        data.captcha_token = window.captchaToken;
+        data.response = "captcha_passed"; 
     }
 };
 
