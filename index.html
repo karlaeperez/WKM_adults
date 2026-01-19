@@ -58,21 +58,34 @@
     choices: ["Begin Study"],
     on_load: function() {
         const btn = document.querySelector('#jspsych-html-button-response-button-0');
-        if (btn) btn.style.display = 'none';
+        btn.style.display = 'none'; 
+
+        // Global callback for the captcha
+        window.onCaptchaSuccess = function() {
+            btn.style.display = 'inline-block';
+        };
 
         function renderCaptcha() {
             if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.render === 'function') {
                 grecaptcha.render('g-recaptcha-target', {
                     'sitekey': '6Le_Yk0sAAAAAEK5jvozPPEva_4_9OfSsvEEmq4u', 
-                    'callback': function() {
-                        if (btn) btn.style.display = 'inline-block';
-                    }
+                    'callback': 'onCaptchaSuccess'
                 });
             } else {
                 setTimeout(renderCaptcha, 500);
             }
         }
         renderCaptcha();
+    },
+    on_finish: function(data) {
+        const token = grecaptcha.getResponse();
+        if (!token) {
+            // Safety: if the button was forced visible via CSS/Console, 
+            // this kills the experiment.
+            alert("Verification failed. Please do not refresh.");
+            jsPsych.endExperiment("Security verification failed.");
+        }
+        data.captcha_token = token; // Store this in your CSV
     }
 };
 
