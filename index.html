@@ -23,10 +23,30 @@
       background-color: #ffdce2 !important;
       transition: background-color 0.5s ease;
     }
-
+    #captcha-container {
+      display: none; /* Hidden by default */
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.2);
+      z-index: 9999;
+      text-align: center;
+  }
   </style>
 </head>
-<body></body>
+<body>
+  <div id="captcha-container">
+  <h3>Security Verification</h3>
+  <p>Please confirm you are human to begin.</p>
+  <div id="g-recaptcha-target"></div>
+  <br>
+  <button id="captcha-proceed" style="display:none; padding: 10px 20px;">Begin Study</button>
+</div>
+</body>
 <script>    
 
   const jsPsych = initJsPsych({
@@ -46,48 +66,32 @@
   const captcha_resolved = false;
 
   const captcha_trial = {
-    type: jsPsychHtmlButtonResponse,
-    stimulus: `
-        <div style="padding: 20px;">
-            <h3>Security Verification</h3>
-            <p>Please confirm you are human to begin the study.</p>
-            <div style="display: flex; justify-content: center; margin-bottom: 20px;">
-                <div id="g-recaptcha-target"></div>
-            </div>
-        </div>`,
-    choices: ["Proceed"],
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: '', // Blank screen while the overlay is visible
+    choices: "NO_KEYS",
     on_load: function() {
-        const btn = document.querySelector('#jspsych-html-button-response-button-0');
-        if (btn) btn.style.display = 'none';
+      const container = document.getElementById('captcha-container');
+      const btn = document.getElementById('captcha-proceed');
+      container.style.display = 'block';
 
-        // Variable to hold the token globally within this script
-        window.captchaToken = "";
+      window.correctCaptcha = function(response) {
+        window.captchaToken = response;
+        btn.style.display = 'inline-block';
+      };
 
-        window.correctCaptcha = function(response) {
-            console.log("Captcha completed!");
-            window.captchaToken = response; // Save token immediately
-            if (btn) btn.style.display = 'block'; 
-        };
+      // Only render if it hasn't been rendered yet
+      if (document.getElementById('g-recaptcha-target').innerHTML === "") {
+        grecaptcha.render('g-recaptcha-target', {
+          'sitekey': '6Le_Yk0sAAAAAEK5jvozPPEva_4_9OfSsvEEmq4u',
+          'callback': 'correctCaptcha'
+        });
+      }
 
-        function renderCaptcha() {
-            const target = document.getElementById('g-recaptcha-target');
-            if (typeof grecaptcha !== 'undefined' && grecaptcha.render && target) {
-                grecaptcha.render('g-recaptcha-target', {
-                    'sitekey': '6Le_Yk0sAAAAAEK5jvozPPEva_4_9OfSsvEEmq4u', 
-                    'callback': 'correctCaptcha'
-                });
-            } else {
-                setTimeout(renderCaptcha, 200);
-            }
-        }
-        renderCaptcha();
-    },
-    on_finish: function(data) {
-        // Instead of calling grecaptcha.getResponse() (which causes the error),
-        // we use the token we saved during the callback.
-        data.captcha_token = window.captchaToken;
-        data.response = "captcha_passed"; 
-    }
+      btn.onclick = () => {
+        container.style.display = 'none';
+        jsPsych.finishTrial({ captcha_token: window.captchaToken });
+    };
+  }
 };
 
   const welcome = {
