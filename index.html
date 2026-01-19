@@ -57,22 +57,18 @@
         </div>`,
     choices: ["Begin Study"],
     on_load: function() {
-        // 1. Find and hide the "Begin Study" button immediately
         const btn = document.querySelector('#jspsych-html-button-response-button-0');
         if (btn) btn.style.display = 'none';
 
-        // 2. Wait for the Google library to load, then render
         function renderCaptcha() {
             if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.render === 'function') {
                 grecaptcha.render('g-recaptcha-target', {
                     'sitekey': '6Le_Yk0sAAAAAEK5jvozPPEva_4_9OfSsvEEmq4u', 
                     'callback': function() {
-                        // 3. Show the button only after the checkbox is clicked
                         if (btn) btn.style.display = 'inline-block';
                     }
                 });
             } else {
-                // If not loaded yet, check again in 500ms
                 setTimeout(renderCaptcha, 500);
             }
         }
