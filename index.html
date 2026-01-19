@@ -58,34 +58,44 @@
     choices: ["Begin Study"],
     on_load: function() {
         const btn = document.querySelector('#jspsych-html-button-response-button-0');
-        btn.style.display = 'none'; 
+        if (btn) btn.style.display = 'none'; // Hide button
 
-        // Global callback for the captcha
+        // Function that Google calls when user clicks the checkbox
         window.onCaptchaSuccess = function() {
-            btn.style.display = 'inline-block';
+            console.log("Captcha solved!");
+            if (btn) btn.style.display = 'inline-block';
         };
 
+        let attempts = 0;
         function renderCaptcha() {
-            if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.render === 'function') {
+            const target = document.getElementById('g-recaptcha-target');
+            // Check if both the Google script is loaded AND the div exists
+            if (typeof grecaptcha !== 'undefined' && grecaptcha.render && target) {
+                console.log("Rendering reCAPTCHA...");
                 grecaptcha.render('g-recaptcha-target', {
                     'sitekey': '6Le_Yk0sAAAAAEK5jvozPPEva_4_9OfSsvEEmq4u', 
                     'callback': 'onCaptchaSuccess'
                 });
             } else {
-                setTimeout(renderCaptcha, 500);
+                attempts++;
+                if(attempts < 50) { // Try for up to 25 seconds
+                    setTimeout(renderCaptcha, 500);
+                } else {
+                    console.error("reCAPTCHA failed to load. Check internet or Site Key.");
+                }
             }
         }
         renderCaptcha();
     },
     on_finish: function(data) {
         const token = grecaptcha.getResponse();
-        if (!token) {
-            // Safety: if the button was forced visible via CSS/Console, 
-            // this kills the experiment.
-            alert("Verification failed. Please do not refresh.");
-            jsPsych.endExperiment("Security verification failed.");
+        if (token === "") {
+            // This prevents bypassing via the console
+            alert("Please complete the verification first.");
+            window.location.reload();
         }
-        data.captcha_token = token; // Store this in your CSV
+        data.response = "captcha_completed";
+        data.captcha_token = token;
     }
 };
 
