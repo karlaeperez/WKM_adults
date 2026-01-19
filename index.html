@@ -58,44 +58,39 @@
     choices: ["Begin Study"],
     on_load: function() {
         const btn = document.querySelector('#jspsych-html-button-response-button-0');
-        if (btn) btn.style.display = 'none'; // Hide button
+        if (btn) btn.style.display = 'none';
 
-        // Function that Google calls when user clicks the checkbox
+        // Set the callback globally so Google can find it
         window.onCaptchaSuccess = function() {
-            console.log("Captcha solved!");
             if (btn) btn.style.display = 'inline-block';
         };
 
-        let attempts = 0;
         function renderCaptcha() {
             const target = document.getElementById('g-recaptcha-target');
-            // Check if both the Google script is loaded AND the div exists
             if (typeof grecaptcha !== 'undefined' && grecaptcha.render && target) {
-                console.log("Rendering reCAPTCHA...");
                 grecaptcha.render('g-recaptcha-target', {
                     'sitekey': '6Le_Yk0sAAAAAEK5jvozPPEva_4_9OfSsvEEmq4u', 
                     'callback': 'onCaptchaSuccess'
                 });
             } else {
-                attempts++;
-                if(attempts < 50) { // Try for up to 25 seconds
-                    setTimeout(renderCaptcha, 500);
-                } else {
-                    console.error("reCAPTCHA failed to load. Check internet or Site Key.");
-                }
+                setTimeout(renderCaptcha, 200);
             }
         }
         renderCaptcha();
     },
     on_finish: function(data) {
-        const token = grecaptcha.getResponse();
-        if (token === "") {
-            // This prevents bypassing via the console
-            alert("Please complete the verification first.");
-            window.location.reload();
+        // Grab the token before the trial elements are destroyed
+        try {
+            const token = grecaptcha.getResponse();
+            data.captcha_token = token;
+            
+            // If they somehow clicked a hidden button without a token
+            if (!token || token === "") {
+                data.error = "No token generated";
+            }
+        } catch (e) {
+            console.error("Error grabbing captcha token:", e);
         }
-        data.response = "captcha_completed";
-        data.captcha_token = token;
     }
 };
 
