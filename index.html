@@ -154,7 +154,8 @@
     `
   };
 
-  let response_data = []; 
+  let response_data = [];
+  let timerInterval;
 
   const animal_fluency = {
     type: jsPsychHtmlKeyboardResponse,
@@ -174,6 +175,7 @@
     choices: "NO_KEYS", 
     trial_duration: 60000, // 60 seconds for the task
     on_load: function() {
+    response_data = [];
       const input = document.getElementById('animal-input');
       const container = document.getElementById('chip-container');
       const placeholder = document.getElementById('placeholder-text');
@@ -182,7 +184,7 @@
 
       input.focus();
 
-      const timerInterval = setInterval(() => {
+      timerInterval = setInterval(() => {
         timeLeft--;
         if (timerElement) {
           timerElement.innerText = `Time remaining: ${timeLeft}s`;
@@ -211,12 +213,9 @@
           input.value = "";
         }
       });
-      // clear the interval if the trial ends for any reason
-      jsPsych.getCurrentTrial().on_finish = function() {
-        clearInterval(timerInterval);
-      };
     },
     on_finish: function(data) {
+      clearInterval(timerInterval);
       data.responses = JSON.stringify(response_data);
     }
   };
