@@ -57,11 +57,17 @@
       }
     });
 
-  const subject_id = jsPsych.randomization.randomID(10);
-  const filename = `${subject_id}.csv`;
+  const prolific_id = jsPsych.data.getURLVariable('PROLIFIC_PID');
+  const study_id = jsPsych.data.getURLVariable('STUDY_ID');
+  const session_id = jsPsych.data.getURLVariable('SESSION_ID');
+
   jsPsych.data.addProperties({
-    subject: subject_id
+    prolific_id: prolific_id,
+    study_id: study_id,
+    session_id: session_id
   });
+
+  const filename = prolific_id ? `${prolific_id}.csv` : `${jsPsych.randomization.randomID(10)}.csv`;
 
   const captcha_resolved = false;
 
@@ -95,29 +101,27 @@
 };
 
   const welcome = {
-    type: jsPsychHtmlKeyboardResponse,
-    stimulus: `
-    Welcome to the study!
-    <br><p><span style="color:gray;">Press any key to proceed.</span></p>
-    `
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `Welcome to the study!`,
+    choices: ['Continue']
   };
 
   const instructions_basic = {
-    type: jsPsychHtmlKeyboardResponse,
+    type: jsPsychHtmlButtonResponse,
     stimulus: `
     <p>In this study, you'll make a series of short text responses about yourself.
     <br>There are no right or wrong answers, we’re just curious what people say about themselves!</p>
-    <p><span style="color:gray;">Press any key to proceed.</span></p>
-    `
+    `,
+    choices: ['Continue']
   };
 
   const instructions_coffee = {
-    type: jsPsychHtmlKeyboardResponse,
+    type: jsPsychHtmlButtonResponse,
     stimulus: `
     <p>Imagine you've just met someone new in a friendly, casual setting<br>(<i>like waiting in line for coffee or at a casual get-together</i>)<br>and you’ve just exchanged names.</p> 
     <p> <b>What are some other things you’d like to say about yourself?</b></p>
-    <p><span style="color:gray;">Press any key to proceed.</span></p>
-    `
+    `,
+    choices: ['Begin Task']
   };
 
   var text_trials = {
@@ -150,37 +154,43 @@
     ]
   };
 
-  const instructions_fluency = {
-    type: jsPsychHtmlKeyboardResponse,
+  const instructions_fluency_1 = {
+    type: jsPsychHtmlButtonResponse,
     stimulus: `
-    <p>Thank you for sharing about yourself!</p>
-    <p>Before we finish, I have one more task for you to complete.
-    <br>I am going to give you a category, and I want you to type <b>as many things as you can</b> that belong to that category. 
-    <br>For example, if I said "fruits", you might respond with "apple", "banana", "grape", etc.</p>
-    <p>But please provide only one answer at a time!
-    <br>e.g., after you type "apple", press <b>Enter</b> to submit before you type "banana".</p>
-    <p><span style="color:gray;">Press any key to begin.</span></p>
-    `
+    <p>Thank you for sharing about yourself!
+    <br>Before we let you go, we have a quick word game for you to complete.</p>
+    `,
+    choices: ['Continue']
   };
 
-  const category_animals = {
-    type: jsPsychHtmlKeyboardResponse,
+  const instructions_fluency_2 = {
+    type: jsPsychHtmlButtonResponse,
     stimulus: `
-    <p>The category is: <b>Animals</b>
-    <br>You will have <b>60 seconds</b> to type as many animals as you can think of.</p>
-    <p><span style="color:gray;">Press any key to begin.</span></p>
-    `
+    <p>In this new task, we'll give you a category and ask you to 
+    <br>name the first 12 members of that category you can think of. 
+    `,
+    choices: ['Continue']
+  };
+
+    const instructions_fluency_3 = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+    <p>Please provide one answer at a time. 
+    <br>For example, if the category is 'fruit', then you might type 'apple', press Enter to submit, 
+    <br>and then proceed to type 'banana', and so on.
+    `,
+    choices: ['Begin Task']
   };
 
   let response_data = [];
-  let timerInterval;
 
   const animal_fluency = {
     type: jsPsychHtmlKeyboardResponse,
     stimulus: `
       <div style="margin-bottom: 20px;">
         <h2 style="margin-bottom: 5px;">The category: <b>Animals</b></h2>
-        <p id="timer-text" style="color: #d9534f; font-weight: bold; margin-top: 0;">Time remaining: 60s</p>
+        <p id="instruction-text" style="color: #555; margin-top: 0;">Remember: Type one animal, press Enter, then type the next</p>
+        <p id="counter-text" style="font-weight: bold; color: #333;">0/12 animals</p>
       </div>
       <div id="chip-container" style="border:1px solid #ccc; padding:10px; min-height:50px; width: 500px; margin: 0 auto 10px auto; border-radius: 5px; text-align: left; display: flex; flex-wrap: wrap; align-items: center;">
         <span id="placeholder-text" style="color: gray; font-style: italic; font-family: sans-serif; margin-left: 5px;">Your responses will appear here...</span>
@@ -191,26 +201,14 @@
               style="width: 500px; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 5px;">
     `,
     choices: "NO_KEYS", 
-    trial_duration: 60000, // 60 seconds for the task
     on_load: function() {
     response_data = [];
       const input = document.getElementById('animal-input');
       const container = document.getElementById('chip-container');
       const placeholder = document.getElementById('placeholder-text');
-      const timerElement = document.getElementById('timer-text');
-      let timeLeft = 60;
+      const counterElement = document.getElementById('counter-text');
 
       input.focus();
-
-      timerInterval = setInterval(() => {
-        timeLeft--;
-        if (timerElement) {
-          timerElement.innerText = `Time remaining: ${timeLeft}s`;
-        }
-        if (timeLeft <= 0) {
-          clearInterval(timerInterval);
-        }
-      }, 1000);
 
       input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && input.value.trim() !== "") {
@@ -223,28 +221,39 @@
           
           response_data.push({ word: word, time: timestamp });
 
+          counterElement.innerText = `${response_data.length}/12 animals`;
+
           const chip = document.createElement('span');
           chip.innerText = word;
           chip.style = "background:#eee; padding:5px; margin:5px; border-radius:15px; display:inline-block;";
           container.appendChild(chip);
 
           input.value = "";
+
+          if (response_data.length >= 12) {
+            jsPsych.finishTrial();
+          }
         }
       });
     },
     on_finish: function(data) {
-      clearInterval(timerInterval);
       data.response = JSON.stringify(response_data);
       console.log("Animal Data Saved:", data.response);
     }
   };
 
-  const goodbye = {
-    type: jsPsychHtmlButtonResponse,
-    stimulus: "Thank you for participating!",
-    choices: ["Finish"]
+  const saving_trial = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+    <div style="font-size: 20px;">
+      <p>Please wait while we save your responses...
+      <br>You will be redirected back to Prolific shortly.</p>
+      <div class="loader"></div> </div>
+    `,
+    choices: "NO_KEYS",
+    trial_duration: 2000, // 2 seconds
   };
-  
+
   const save_data = {
     type: jsPsychPipe,
     action: "save",
@@ -253,7 +262,17 @@
     data_string: () => jsPsych.data.get().csv()
   };
 
-  jsPsych.run([captcha_trial, welcome, instructions_basic, instructions_coffee, text_trials, instructions_fluency, category_animals, animal_fluency, goodbye, save_data]);
+  const goodbye = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: "Thank you for participating! Click the button below to return to Prolific and complete your submission.",
+    choices: ["Return to Prolific"],
+    on_finish: function() {
+      window.location.href = "https://app.prolific.com/submissions/complete?cc=CHTCOA66";
+  }
+};
+
+
+  jsPsych.run([captcha_trial, welcome, instructions_basic, instructions_coffee, text_trials, instructions_fluency_1, instructions_fluency_2, instructions_fluency_3, animal_fluency, saving_trial, save_data, goodbye]);
 
 </script>
 
