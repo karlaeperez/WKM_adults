@@ -135,7 +135,11 @@
                     columns: 50,
                     required: true
                 }
-            ]
+            ],
+            on_finish: function(data) {
+                data.absolute_time_ms = performance.now();
+                data.rt_ms = data.rt;
+            }
         }
     ],
     timeline_variables: [
@@ -183,6 +187,7 @@
   };
 
   let response_data = [];
+  let trialStartTime;
 
   const animal_fluency = {
     type: jsPsychHtmlKeyboardResponse,
@@ -202,6 +207,7 @@
     `,
     choices: "NO_KEYS", 
     on_load: function() {
+    trialStartTime = performance.now();
     response_data = [];
       const input = document.getElementById('animal-input');
       const container = document.getElementById('chip-container');
@@ -217,9 +223,10 @@
           }
           
           const word = input.value.trim();
+          const relativeTimestamp = performance.now() - trialStartTime;
           const timestamp = performance.now(); 
           
-          response_data.push({ word: word, time: timestamp });
+          response_data.push({ word: word, time: timestamp, rt_ms: relativeTimestamp });
 
           counterElement.innerText = `${response_data.length}/12 animals`;
 
