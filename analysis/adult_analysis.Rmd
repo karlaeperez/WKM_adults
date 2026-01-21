@@ -1,0 +1,40 @@
+---
+title: "adult_analysis"
+output: html_document
+date: "2026-01-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(text)
+library(here)
+library(reticulate)
+textrpp_initialize()
+```
+
+```{r load-data}
+data <- read_csv(here("../data/adult_data.csv"))
+
+intro_data <- data %>%
+  filter(trial_type == "survey-text") %>%
+  select(prolific_id, trial_index, response)
+```
+
+```{python}
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+print(r.intro_data['response'])
+
+embedding_data = list(model.encode(r.intro_data['response']))
+#embeddings = model.encode(sentences)
+```
+
+
+
+```{r get-embeddings}
+intro_embeddings <- py$embedding_data
+
+
+
+```
