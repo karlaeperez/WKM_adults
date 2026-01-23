@@ -24,6 +24,13 @@ textrpp_initialize(save_profile = TRUE)
 
 ```
 
+
+### measure of typicality: average cosine similarity
+intuition: On average, how much does this specific thought look like every other thought in the database?
+here, I calculated typicality within group (i.e., within children, within adults)
+
+
+
 ```{r import data}
 
 master_data <- read.csv("/Users/karlaperez/Documents/projects/self-disclosure/4. Data/MASTER_DATA_LONG.csv", 
@@ -223,7 +230,7 @@ message(paste("Total combined responses:", nrow(combined_data)))
 
 ```
 
-```{r calculate combined typicality}
+```{r combined typicality}
 
 # typicality calculation
 combined_sim_matrix <- textSimilarityMatrix(combined_vectors)
@@ -233,6 +240,49 @@ combined_data$joint_typicality <- (rowSums(combined_sim_matrix) - 1) / (ncol(com
 joint_umap_results <- umap(combined_vectors)
 combined_data$umap_1 <- joint_umap_results$layout[,1]
 combined_data$umap_2 <- joint_umap_results$layout[,2]
+```
+
+```{r cross-group typicality}
+
+# view dimensions
+message(paste("Child Vectors Dim:", paste(dim(child_vectors), collapse="x")))
+message(paste("Adult Vectors Dim:", paste(dim(adult_vectors), collapse="x")))
+
+# extract only the numeric 768 columns
+child_m <- as.matrix(child_vectors[, 1:768])
+adult_m <- as.matrix(adult_vectors[, 1:768])
+
+# handle NAs 
+child_m[is.na(child_m)] <- 0
+adult_m[is.na(adult_m)] <- 0
+
+# normalize
+child_norm <- child_m / sqrt(rowSums(child_m^2))
+adult_norm <- adult_m / sqrt(rowSums(adult_m^2))
+
+# matrix multiplication: tcrossprod expects (A, B) and calculates A %*% t(B)
+sim_matrix <- tcrossprod(child_norm, adult_norm)
+
+message(paste("Resulting Matrix Dim:", paste(dim(sim_matrix), collapse="x")))
+
+child_self$adult_typicality <- rowMeans(sim_matrix)
+
+```
+
+```{r cross group typicality comparisons}
+
+# top 10 most adult-like child disclosures
+child_self %>%
+  arrange(desc(adult_typicality)) %>%
+  select(response, adult_typicality, age_at_test) %>%
+  head(10)
+
+# top 10 most child-like child disclosures
+child_self %>%
+  arrange(adult_typicality) %>%
+  select(response, adult_typicality, age_at_test) %>%
+  head(10)
+
 ```
 
 
@@ -335,6 +385,10 @@ combined_data_ids %>%
   labs(title = "Children's Semantic Cloud",
        subtitle = "Each color represents an individual participant") +
   theme(legend.position = "none")
+
+```
+
+```{r}
 
 ```
 
