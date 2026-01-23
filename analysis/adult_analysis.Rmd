@@ -5,36 +5,545 @@ date: "2026-01-20"
 ---
 
 ```{r setup, include=FALSE}
+
 knitr::opts_chunk$set(echo = TRUE)
+
 library(tidyverse)
 library(text)
 library(here)
 library(reticulate)
-textrpp_initialize()
-```
+library(umap)
+library(viridis)
+library(plotly)
 
-```{r load-data}
-data <- read_csv(here("../data/adult_data.csv"))
+# # install python environment 
+# textrpp_install()
 
-intro_data <- data %>%
-  filter(trial_type == "survey-text") %>%
-  select(prolific_id, trial_index, response)
-```
-
-```{python}
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-print(r.intro_data['response'])
-
-embedding_data = list(model.encode(r.intro_data['response']))
-#embeddings = model.encode(sentences)
-```
-
-
-
-```{r get-embeddings}
-intro_embeddings <- py$embedding_data
-
-
+# initialize environment 
+textrpp_initialize(save_profile = TRUE)
 
 ```
+
+```{r import data}
+
+master_data <- read.csv("/Users/karlaperez/Documents/projects/self-disclosure/4. Data/MASTER_DATA_LONG.csv")
+
+child_data <- read.csv("~/Documents/projects/self-disclosure/4. Data/data_children.csv", stringsAsFactors = FALSE)
+
+```
+
+```{r clean data}
+
+# adults' self disclosure trials -----------------------------------------------
+self_facts <- master_data %>% 
+  filter(trial_type == "survey-text")
+
+# adults' animal fluency trials
+adults_animals <- master_data %>% 
+  filter(trial_type == "animal_entry")
+
+# children's self disclosure trials --------------------------------------------
+child_self <- child_data %>% 
+  pivot_longer(cols = starts_with("utterance_"), 
+               names_to = "utterance",
+               names_prefix = "utterance_",
+               values_to = "response")
+
+# replace NAs and empty strings with "none"
+child_self$response_clean <- ifelse(is.na(child_self$response) |
+                                      trimws(child_self$response) == "", 
+                                    "none", 
+                                    child_self$response)
+
+# remove newlines and extra spaces
+child_self$response_clean <- gsub("[\r\n]", " ", child_self$response_clean)
+child_self$response_clean <- trimws(child_self$response_clean)
+
+message(paste("total child rows to embed:", nrow(child_self))) # 228
+
+
+```
+```{r run child embeddings}
+
+# run SBERT
+child_embeddings_raw <- textEmbed(
+  texts = child_self$response_clean,
+  model = "sentence-transformers/all-distilroberta-v1",
+  batch_size = 10,
+  keep_token_embeddings = FALSE
+)
+
+# pull the vectors
+child_vectors <- child_embeddings_raw$texts[[1]]
+
+# MAKE SURE WE DID NOT LOSE A BATCH 
+nrow(child_vectors) == nrow(child_self) # if TRUE, we're good
+
+# if (nrow(child_vectors) < nrow(child_self)) {
+#   missing_idx <- setdiff(1:nrow(child_self), as.numeric(rownames(child_vectors)))
+#   message(paste("Repairing", length(missing_idx), "missing rows..."))
+#   
+#   repair <- textEmbed(
+#     texts = child_self$response_clean[missing_idx],
+#     model = "sentence-transformers/all-distilroberta-v1",
+#     batch_size = 1,
+#     keep_token_embeddings = FALSE
+#   )
+#   
+#   repair_vecs <- repair$texts[[1]]
+#   rownames(repair_vecs) <- missing_idx
+#   child_vectors <- rbind(child_vectors, repair_vecs)
+#   child_vectors <- child_vectors[order(as.numeric(rownames(child_vectors))), ]
+# }
+```
+
+```{r calculate child typicality}
+
+# typicality calculation
+child_sim_matrix <- textSimilarityMatrix(child_vectors)
+child_self$typicality <- (rowSums(child_sim_matrix) - 1) / (ncol(child_sim_matrix) - 1) # how else can we calculate typicality??
+
+# 2D coordinates for child cloud
+child_umap <- umap(child_vectors)
+child_self$umap_1 <- child_umap$layout[,1]
+child_self$umap_2 <- child_umap$layout[,2]
+
+```
+
+```{r visualize child semantic cloud}
+
+ggplot(child_self, aes(x = umap_1, y = umap_2, color = typicality)) +
+  geom_point(alpha = 0.7, size = 2) +
+  scale_color_viridis_c(option = "plasma", direction = -1) +
+  theme_minimal() +
+  labs(title = "Child Self-Disclosure Semantic Cloud",
+       subtitle = "Dots represent individual child responses",
+       color = "Typicality")
+```
+
+
+
+
+```{r}
+
+sentence_embeddings <- textEmbed(
+  texts = self_facts$response,
+  model = "bert-base-uncased", 
+  layers = 11:12,
+  aggregation_from_layers_to_tokens = "mean",
+  aggregation_from_tokens_to_texts = "mean" 
+)
+
+names(sentence_embeddings)
+
+final_vectors <- sentence_embeddings$texts[[1]]
+
+dim(final_vectors)
+
+
+```
+
+
+```{r}
+
+# count NAs
+sum(is.na(self_facts$response))
+
+# count empty or whitespace-only strings
+sum(nchar(trimws(self_facts$response)) == 0, na.rm = TRUE)
+
+processed_indices <- as.numeric(rownames(sentence_embeddings$texts[[1]]))
+missing_indices <- setdiff(1:nrow(self_facts), processed_indices)
+
+# skipped text
+self_facts$response[missing_indices]
+```
+
+
+```{r}
+
+# clean text
+self_facts$response_clean <- self_facts$response %>%
+  gsub("\n", " ", .) %>%
+  trimws()
+
+# chunking function to run by batches
+chunk_size <- 500
+n_rows <- nrow(self_facts)
+num_chunks <- ceiling(n_rows / chunk_size)
+
+all_vectors_list <- list()
+
+for (i in 1:num_chunks) {
+  start_idx <- ((i - 1) * chunk_size) + 1
+  end_idx <- min(i * chunk_size, n_rows)
+  
+  message(paste("Processing rows", start_idx, "to", end_idx, "..."))
+  
+  chunk_embed <- textEmbed(
+    texts = self_facts$response_clean[start_idx:end_idx],
+    model = "bert-base-uncased",
+    layers = 11:12,
+    aggregation_from_layers_to_tokens = "mean",
+    aggregation_from_tokens_to_texts = "mean",
+    keep_token_embeddings = FALSE # Keeps it lightweight
+  )
+  
+  # store matrix
+  all_vectors_list[[i]] <- chunk_embed$texts[[1]]
+}
+
+# combine all vectors 
+final_vectors <- do.call(rbind, all_vectors_list)
+
+message(paste("Original rows:", nrow(self_facts)))
+message(paste("Embedded rows:", nrow(final_vectors)))
+
+
+final_df <- cbind(self_facts, final_vectors)
+```
+
+
+```{r}
+# identify missing rows from original indecies 
+processed_indices <- as.numeric(rownames(final_vectors))
+missing_indices <- setdiff(1:nrow(self_facts), processed_indices)
+
+message(paste("Repairing", length(missing_indices), "missing rows..."))
+
+# 2. Embed ONLY the missing 100 rows
+# We use batch_size = 1 for maximum safety so nothing gets dropped
+repair_embed <- textEmbed(
+  texts = self_facts$response_clean[missing_indices],
+  model = "bert-base-uncased",
+  layers = 11:12,
+  aggregation_from_layers_to_tokens = "mean",
+  aggregation_from_tokens_to_texts = "mean",
+  batch_size = 1,           
+  keep_token_embeddings = FALSE
+)
+
+# 3. Extract the repair vectors and re-assign their original row names
+repair_vectors <- repair_embed$texts[[1]]
+rownames(repair_vectors) <- missing_indices
+
+# 4. Stitch the main matrix and the repair matrix back together
+# This combines the 2900 and the 100 to make 3000
+final_vectors_3000 <- rbind(final_vectors, repair_vectors)
+
+# 5. Re-sort the matrix so the rows are in order (1, 2, 3... 3000)
+final_vectors_3000 <- final_vectors_3000[order(as.numeric(rownames(final_vectors_3000))), ]
+
+
+message(paste("Final matrix size:", nrow(final_vectors_3000), "rows and", ncol(final_vectors_3000), "dimensions"))
+
+
+self_facts_complete <- cbind(self_facts, final_vectors_3000)
+```
+
+
+```{r}
+# global similarity matrix
+sim_matrix <- textSimilarityMatrix(final_vectors_3000)
+
+self_facts$typicality_score <- (rowSums(sim_matrix) - 1) / (ncol(sim_matrix) - 1)
+
+# correlation between thinking time and how unique the response is
+cor.test(self_facts$inter_item_latency_ms, self_facts$typicality_score)
+
+```
+
+```{r}
+
+umap_results <- umap(final_vectors_3000)
+
+self_facts$umap_1 <- umap_results$layout[,1]
+self_facts$umap_2 <- umap_results$layout[,2]
+
+
+```
+
+```{r}
+
+ggplot(self_facts, aes(x = umap_1, y = umap_2, color = typicality_score)) +
+  geom_point(alpha = 0.4, size = 1.5) +
+  scale_color_viridis(option = "plasma", direction = -1) + 
+  theme_minimal() +
+  labs(title = "The Semantic Cloud of Self-Disclosure",
+       subtitle = "Dots represent individual responses; Colors represent how 'typical' the response is",
+       x = "Semantic Dimension 1",
+       y = "Semantic Dimension 2",
+       color = "Typicality") +
+  theme(legend.position = "right")
+
+```
+
+```{r}
+
+# Find the responses at the "Left" tip
+left_tip <- self_facts %>% arrange(umap_1) %>% head(20) %>% select(response)
+
+# Find the responses at the "Right" tip
+right_tip <- self_facts %>% arrange(desc(umap_1)) %>% head(20) %>% select(response)
+
+# Find the responses at the "Bottom" tip
+bottom_tip <- self_facts %>% arrange(umap_2) %>% head(20) %>% select(response)
+
+```
+
+```{r}
+# interactive map
+
+library(plotly)
+
+p <- ggplot(self_facts, aes(x = umap_1, y = umap_2, 
+                           color = typicality_score,
+                           text = paste("Response:", response, 
+                                        "<br>Typicality:", round(typicality_score, 3)))) +
+  geom_point(alpha = 0.6) +
+  scale_color_viridis(option = "plasma", direction = -1) +
+  theme_minimal()
+
+ggplotly(p, tooltip = "text")
+
+```
+
+
+
+```{r}
+# try with SBERT
+
+model_name <- "sentence-transformers/all-distilroberta-v1"
+
+test_embed <- textEmbed(
+  texts = self_facts$response_clean[1:100],
+  model = model_name,
+  batch_size = 10, 
+  keep_token_embeddings = FALSE
+)
+
+
+message(paste("New vector dimensions:", ncol(test_embed$texts[[1]])))
+```
+
+
+```{r}
+
+# pull vector of interest
+test_vectors <- test_embed$texts[[1]]
+# similarity matrix
+test_sim_matrix <- textSimilarityMatrix(test_vectors)
+
+round(test_sim_matrix[1:5, 1:5], 2)
+
+```
+
+```{r}
+
+chunk_size <- 500
+n_rows <- nrow(self_facts)
+num_chunks <- ceiling(n_rows / chunk_size)
+
+sbert_vectors_list <- list()
+
+for (i in 1:num_chunks) {
+  start_idx <- ((i - 1) * chunk_size) + 1
+  end_idx <- min(i * chunk_size, n_rows)
+  
+  message(paste("SBERT Processing:", start_idx, "to", end_idx))
+  
+  chunk_embed <- textEmbed(
+    texts = self_facts$response_clean[start_idx:end_idx],
+    model = "sentence-transformers/all-distilroberta-v1",
+    batch_size = 10,
+    keep_token_embeddings = FALSE
+  )
+  
+  sbert_vectors_list[[i]] <- chunk_embed$texts[[1]]
+}
+
+
+final_sbert_vectors <- do.call(rbind, sbert_vectors_list)
+```
+
+```{r}
+# process missing rows
+
+sbert_processed_indices <- as.numeric(rownames(final_sbert_vectors))
+sbert_missing_indices <- setdiff(1:nrow(self_facts), sbert_processed_indices)
+
+message(paste("Repairing", length(sbert_missing_indices), "missing SBERT rows..."))
+
+# embed ONLY the missing rows
+sbert_repair <- textEmbed(
+  texts = self_facts$response_clean[sbert_missing_indices],
+  model = "sentence-transformers/all-distilroberta-v1",
+  batch_size = 1, 
+  keep_token_embeddings = FALSE
+)
+
+
+sbert_repair_vectors <- sbert_repair$texts[[1]]
+rownames(sbert_repair_vectors) <- sbert_missing_indices
+
+
+final_sbert_vectors_3000 <- rbind(final_sbert_vectors, sbert_repair_vectors)
+final_sbert_vectors_3000 <- final_sbert_vectors_3000[order(as.numeric(rownames(final_sbert_vectors_3000))), ]
+
+# typicality calculation
+sbert_sim_matrix <- textSimilarityMatrix(final_sbert_vectors_3000)
+self_facts$sbert_typicality <- (rowSums(sbert_sim_matrix) - 1) / (ncol(sbert_sim_matrix) - 1)
+
+message("Row count is now: ", nrow(final_sbert_vectors_3000))
+```
+
+
+```{r}
+
+# 1. Identify which rows are valid (non-NA)
+valid_rows <- which(rowSums(is.na(final_sbert_vectors_3000)) == 0)
+
+# 2. Subset your data and your matrix to keep only valid responses
+self_facts_final <- self_facts[valid_rows, ]
+final_sbert_vectors_final <- final_sbert_vectors_3000[valid_rows, ]
+
+# 3. Re-calculate Typicality on the clean set
+sbert_sim_matrix <- textSimilarityMatrix(final_sbert_vectors_final)
+self_facts_final$sbert_typicality <- (rowSums(sbert_sim_matrix) - 1) / (ncol(sbert_sim_matrix) - 1)
+
+# 4. Run UMAP on the clean matrix
+sbert_umap_results <- umap(final_sbert_vectors_final)
+
+# 5. Add coordinates back
+self_facts_final$sbert_umap_1 <- sbert_umap_results$layout[,1]
+self_facts_final$sbert_umap_2 <- sbert_umap_results$layout[,2]
+
+
+```
+
+```{r}
+
+ggplot(self_facts_final, aes(x = sbert_umap_1, y = sbert_umap_2, color = sbert_typicality)) +
+  geom_point(alpha = 0.45, size = 1) +
+  scale_color_viridis_c(option = "plasma", direction = -1) +
+  theme_minimal() +
+  labs(title = "SBERT Semantic Map",
+       subtitle = "removed one participant who entered NAs for self-disc",
+       x = "Semantic Dim 1", y = "Semantic Dim 2",
+       color = "Typicality")
+
+```
+
+```{r}
+# choose number of clusters
+set.seed(12326) 
+k_clusters <- 8
+clusters <- kmeans(final_sbert_vectors_final, centers = k_clusters)
+
+self_facts_final$cluster <- as.factor(clusters$cluster)
+```
+
+
+```{r}
+library(tidytext)
+
+# tokenize the text and remove stop words
+cluster_keywords <- self_facts_final %>%
+  select(cluster, response_clean) %>%
+  unnest_tokens(word, response_clean) %>%
+  anti_join(stop_words) %>%
+  count(cluster, word, sort = TRUE) %>%
+  group_by(cluster) %>%
+  slice_max(n, n = 5) %>% # get top 5 words per cluster
+  summarise(keywords = paste(word, collapse = ", "))
+
+print(cluster_keywords)
+```
+
+```{r}
+# calculate the center (median) position of each cluster for labeling
+cluster_centers <- self_facts_final %>%
+  group_by(cluster) %>%
+  summarise(x = median(sbert_umap_1), y = median(sbert_umap_2)) %>%
+  left_join(cluster_keywords, by = "cluster")
+
+ggplot(self_facts_final, aes(x = sbert_umap_1, y = sbert_umap_2, color = cluster)) +
+  geom_point(alpha = 0.3, size = 1) +
+  geom_label(data = cluster_centers, aes(x = x, y = y, label = keywords), 
+             color = "black", size = 3, fontface = "bold", alpha = 0.8) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(title = "Thematic Islands of Self-Disclosure",
+       subtitle = "Labels show the 5 most frequent unique words in each cluster")
+```
+
+```{r}
+# cluster the SBERT vectors
+set.seed(12326)
+k_centers <- 6
+clusters <- kmeans(final_sbert_vectors_final, centers = k_centers)
+
+# add cluster ID back 
+self_facts_final$cluster <- as.factor(clusters$cluster)
+```
+
+```{r}
+library(tidytext)
+library(dplyr)
+
+# Extract top 3 unique words per cluster
+cluster_labels <- self_facts_final %>%
+  unnest_tokens(word, response) %>%
+  anti_join(stop_words) %>%
+  count(cluster, word) %>%
+  group_by(cluster) %>%
+  slice_max(n, n = 3, with_ties = FALSE) %>%
+  summarise(theme = paste(word, collapse = ", "))
+
+# Join the labels back to the main data
+self_facts_final <- self_facts_final %>%
+  left_join(cluster_labels, by = "cluster")
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(self_facts_final, aes(x = theme, y = rt_ms, fill = theme)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) + # Hide outliers to see the boxes clearly
+  geom_jitter(width = 0.2, alpha = 0.1) +         # Show the individual dots
+  coord_cartesian(ylim = c(0, 5000)) +            # Zoom in on 0-5 seconds
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") +
+  labs(title = "Mental Effort by Semantic Category",
+       subtitle = "Comparing Reaction Times across different disclosure themes",
+       x = "Thematic Cluster (Top Words)",
+       y = "Reaction Time (ms)")
+```
+
+```{r}
+# does the category of the fact significantly predict how long it takes to type?
+rt_model <- aov(inter_item_latency_ms ~ theme, data = self_facts_final)
+summary(rt_model)
+
+TukeyHSD(rt_model)
+```
+
+```{r}
+# interactive map SBERT
+
+library(plotly)
+
+p_interactive <- ggplot(self_facts_final, aes(x = sbert_umap_1, y = sbert_umap_2, 
+                                              color = sbert_typicality,
+                                              text = paste("Response:", response, 
+                                                           "<br>Typicality:", round(sbert_typicality, 3),
+                                                           "<br>RT:", rt_ms, "ms"))) +
+  geom_point(alpha = 0.6, size = 1.5) +
+  scale_color_viridis_c(option = "plasma", direction = -1) +
+  theme_minimal() +
+  labs(title = "Interactive Semantic Cloud: Hover over dots to read responses")
+
+ggplotly(p_interactive, tooltip = "text")
+```
+
