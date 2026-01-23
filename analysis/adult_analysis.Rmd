@@ -200,3 +200,144 @@ ggplot(adults_self, aes(x = umap_1, y = umap_2, color = typicality)) +
        subtitle = "Dots represent individual adult responses",
        color = "Typicality")
 ```
+
+## joint analysis (child and adult)
+
+```{r merge child and adult data}
+
+child_to_merge <- child_self %>%
+  mutate(age_group = "child") %>%
+  select(age_group, response = response_clean)
+
+adult_to_merge <- adults_self %>%
+  mutate(age_group = "adult") %>%
+  select(age_group, response = response_clean)
+
+# combine responses
+combined_data <- bind_rows(adult_to_merge, child_to_merge)
+
+# combine vectors 
+combined_vectors <- rbind(adult_vectors, child_vectors)
+
+message(paste("Total combined responses:", nrow(combined_data)))
+
+```
+
+```{r calculate combined typicality}
+
+# typicality calculation
+combined_sim_matrix <- textSimilarityMatrix(combined_vectors)
+combined_data$joint_typicality <- (rowSums(combined_sim_matrix) - 1) / (ncol(combined_sim_matrix) - 1)
+
+# 2D coordinates for joint cloud
+joint_umap_results <- umap(combined_vectors)
+combined_data$umap_1 <- joint_umap_results$layout[,1]
+combined_data$umap_2 <- joint_umap_results$layout[,2]
+```
+
+
+```{r visualize child and adult data}
+
+ggplot(combined_data, aes(x = umap_1, y = umap_2, color = age_group)) +
+  geom_point(alpha = 0.4, size = 1) +
+  scale_color_manual(values = c("adult" = "#440154", "child" = "#fde725")) + 
+  theme_minimal() +
+  labs(title = "Integrated Semantic Cloud",
+       subtitle = "Adult (Purple) vs. Child (Yellow) Self-Disclosures",
+       x = "Joint Semantic Dim 1", y = "Joint Semantic Dim 2") +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3)))
+
+ggplot(combined_data, aes(x = umap_1, y = umap_2, color = age_group)) +
+  geom_point(alpha = 0.4, size = 1) +
+  scale_color_manual(values = c("adult" = "#440154", "child" = "#fde725")) + 
+  theme_minimal() +
+  labs(title = "Integrated Semantic Cloud",
+       subtitle = "Adult (Purple) vs. Child (Yellow) Self-Disclosures",
+       x = "Joint Semantic Dim 1", y = "Joint Semantic Dim 2") +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3)))
+
+
+```
+
+```{r interactive joint map}
+
+p_joint <- ggplot(combined_data, aes(x = umap_1, y = umap_2, 
+                                     color = age_group,
+                                     text = response)) +
+  geom_point(alpha = 0.5) +
+  scale_color_manual(values = c("adult" = "#440154", "child" = "#fde725")) +
+  theme_minimal()
+
+ggplotly(p_joint, tooltip = "text")
+
+```
+
+
+
+```{r}
+
+ggplot(combined_data, aes(x = umap_1, y = umap_2, color = age_group)) +
+  geom_point(alpha = 0.5, size = 1.5) + 
+  scale_color_manual(values = c("adult" = "#440154", "child" = "#fde725")) +
+  theme_minimal() +
+  coord_cartesian(xlim = c(-5, 5), ylim = c(-3, 10)) + 
+  labs(title = "Semantic Intersection")
+```
+
+
+```{r}
+
+ggplot(combined_data, aes(x = umap_1, y = umap_2, color = age_group)) +
+  geom_point(alpha = 0.5, size = 1.5) + 
+  scale_color_manual(values = c("adult" = "#440154", "child" = "#fde725")) +
+  theme_minimal() +
+  coord_cartesian(xlim = c(-5, 5), ylim = c(-3, 10)) + 
+  labs(title = "zoomed View") +
+  facet_wrap(~age_group)
+
+```
+
+```{r}
+
+child_narrow <- child_self %>% 
+  select(subject_id, response_clean, typicality, umap_1, umap_2)
+
+adult_narrow <- adults_self %>% 
+  select(prolific_id, response_clean, typicality, umap_1, umap_2) %>% 
+  rename(subject_id = prolific_id)
+
+combined_data_ids <- rbind(child_narrow, adult_narrow) %>% 
+   mutate(age_group = ifelse(startsWith(as.character(subject_id), "WKM"), 
+                            "child", 
+                            "adult"))
+
+combined_data_ids %>% 
+  filter(age_group == "adult") %>% 
+  ggplot(aes(x = umap_1, y = umap_2, color = subject_id)) +
+  geom_point(alpha = 0.5, size = 1.5) + 
+  theme_minimal() +
+  coord_cartesian(xlim = c(-5, 5), ylim = c(-6, 6)) + 
+  labs(title = "Adults Semantic Cloud",
+       subtitle = "Each color represents an individual participant") +
+  theme(legend.position = "none")
+
+
+```
+
+```{r}
+
+combined_data_ids %>% 
+  filter(age_group == "child") %>% 
+  ggplot(aes(x = umap_1, y = umap_2, color = subject_id)) +
+  geom_point(alpha = 0.5, size = 1.5) + 
+  theme_minimal() +
+  coord_cartesian(xlim = c(-5, 5), ylim = c(-6, 6)) + 
+  labs(title = "Children's Semantic Cloud",
+       subtitle = "Each color represents an individual participant") +
+  theme(legend.position = "none")
+
+```
+
+
+
+
