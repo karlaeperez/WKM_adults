@@ -86,6 +86,7 @@ message(paste("total child rows to embed:", nrow(child_self))) # 228
 
 ```
 
+
 ```{r run child embeddings}
 
 # run SBERT
