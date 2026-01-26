@@ -1,0 +1,304 @@
+---
+title: "embeddings_clean"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(text)
+library(here)
+library(reticulate)
+library(umap)
+library(viridis)
+library(plotly)
+library(purrr)
+library(lsr)
+library(stringr)
+library(emmeans)
+library(effectsize)
+
+# # install python environment 
+# textrpp_install()
+
+# # initialize environment 
+# textrpp_initialize(save_profile = TRUE)
+
+```
+
+```{r}
+self_responses <- read.csv("~/Documents/projects/self-disclosure/data/all_responses_clean.csv", 
+                           stringsAsFactors = FALSE)
+
+anonymized_children <- read.csv("~/Documents/projects/self-disclosure/data/anonymized_children.csv", 
+                           stringsAsFactors = FALSE)
+
+children_ages <- anonymized_children %>%
+  select(anon_id, age_at_test) %>% 
+  rename(subject_id = anon_id)
+
+```
+
+Questions to ask Claire + Robert
+- should i get rid of all punctuation in the adult responses?
+
+```{r run all-distilroberta-v1, eval = FALSE}
+
+all_embeddings_raw <- textEmbed(
+  texts = self_responses$response_clean,
+  model = "sentence-transformers/all-distilroberta-v1",
+  batch_size = 10,
+  keep_token_embeddings = FALSE
+) # Minutes from start:  6.989
+
+# check if we lost any rows, if TRUE, we're good to go
+nrow(self_responses) == nrow(all_embeddings_raw$texts[[1]])
+
+# pull the vectors
+self_vectors_all <- all_embeddings_raw$texts[[1]]
+
+# write.csv(x = self_vectors_all, file = "self_vectors_all.csv", row.names = FALSE)
+```
+
+
+```{r}
+
+self_vectors_all <- read.csv("self_vectors_all.csv")
+
+# compute similarity matrix
+all_sim_matrix <- textSimilarityMatrix(self_vectors_all)
+# compute typicality calculation, then add to main df
+self_responses$typicality <- (rowSums(all_sim_matrix) - 1) / (ncol(all_sim_matrix) - 1)
+
+# 2D coordinates for adult cloud
+# NOTE: UMAP calculated using raw vectors (embeddings), not typicality scores
+all_umap <- umap(self_vectors_all)
+self_responses$umap_1 <- all_umap$layout[,1]
+self_responses$umap_2 <- all_umap$layout[,2]
+```
+
+```{r update dfs}
+
+# add skip count to main df
+self_responses <- self_responses %>% 
+  mutate(is_skip = if_else(response_clean == "none", TRUE, FALSE)) %>% 
+  rename(subject_id = anon_id)
+
+# add vectors to main df
+self_responses <- cbind(self_responses, self_vectors_all)
+
+# make child response df with ages
+child_responses_age <- left_join(self_responses %>% filter(age_group == "child"), 
+                                 children_ages, by = join_by(subject_id)) %>% 
+  select(subject_id, age_at_test, age_group, -id_texts, everything())
+```
+
+```{r}
+
+child_diversity_metrics <- child_responses_age %>%
+  group_by(subject_id) %>%
+  group_split() %>%
+  map_dfr(function(df_child) {
+    
+    # count skips
+    total_skips <- sum(df_child$is_skip)
+    
+    # get only real responses
+    real_responses <- df_child %>% filter(!is_skip)
+    
+    diversity <- NA
+    
+    if(nrow(real_responses) >= 2) {
+      # 3. Use the numeric matrix math directly
+      # We extract the embedding columns (ignoring our metadata columns)
+      vectors <- as.matrix(real_responses[, 11:778])
+      
+      # Manual Cosine Similarity Matrix:
+      # Normalize rows
+      norm_vecs <- vectors / sqrt(rowSums(vectors^2))
+      # Dot product gives the similarity matrix
+      sim_matrix <- norm_vecs %*% t(norm_vecs)
+      
+      # Remove self-similarity (the diagonal of 1s)
+      diag(sim_matrix) <- NA
+      
+      # Diversity = 1 - average similarity
+      diversity <- 1 - mean(sim_matrix, na.rm = TRUE)
+    }
+    
+    data.frame(
+      subject_id = df_child$subject_id[1],
+      age = first(df_child$age_at_test),
+      skip_count = total_skips,
+      semantic_diversity = diversity
+    )
+  })
+
+print(child_diversity_metrics)
+
+```
+
+```{r simple linear regression - children}
+
+age_model <- lm(semantic_diversity ~ age, data = child_diversity_metrics)
+
+summary(age_model)
+
+ggplot(child_diversity_metrics, aes(x = age, y = semantic_diversity)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", color = "blue") +
+  theme_minimal() +
+  labs(title = "Effect of Age on Semantic Diversity",
+       x = "Age (Years)",
+       y = "Semantic Diversity (Breadth)")
+
+```
+
+```{r multiple regression: age + skips - children}
+
+interaction_model_children <- lm(semantic_diversity ~ age + skip_count, data = child_diversity_metrics)
+
+summary(interaction_model_children)
+
+```
+```{r}
+# Pearson Correlation for Age vs Diversity
+cor_test_children <- cor.test(child_diversity_metrics$age, child_diversity_metrics$semantic_diversity)
+
+# does the number of skips predict how diverse their remaining thoughts are?
+skip_cor_children <- cor.test(child_diversity_metrics$skip_count, child_diversity_metrics$semantic_diversity)
+
+print(paste("Correlation (Age & Diversity):", round(cor_test_children$estimate, 3), 
+            "p =", round(cor_test_children$p.value, 3))) # 0.251 p = 0.315
+print(paste("Correlation (Skips & Diversity):", round(skip_cor_children$estimate, 3), 
+            "p =", round(skip_cor_children$p.value, 3))) # 0.36 p = 0.142
+```
+
+```{r adult diversity metrics}
+
+adult_responses <- self_responses %>% 
+  filter(age_group == "adult") %>% 
+  select(-id_texts)
+
+adult_diversity_metrics <- adult_responses %>%
+  group_by(subject_id) %>%
+  group_split() %>%
+  map_dfr(function(df_adult) {
+    
+    # count skips
+    total_skips <- sum(df_adult$is_skip)
+    
+    # get only real responses
+    real_responses <- df_adult %>% filter(!is_skip)
+    
+    diversity <- NA
+    
+    if(nrow(real_responses) >= 2) {
+      # 3. Use the numeric matrix math directly
+      # We extract the embedding columns (ignoring our metadata columns)
+      vectors <- as.matrix(real_responses[, 9:776])
+      
+      # Manual Cosine Similarity Matrix:
+      # Normalize rows
+      norm_vecs <- vectors / sqrt(rowSums(vectors^2))
+      # Dot product gives the similarity matrix
+      sim_matrix <- norm_vecs %*% t(norm_vecs)
+      
+      # Remove self-similarity (the diagonal of 1s)
+      diag(sim_matrix) <- NA
+      
+      # Diversity = 1 - average similarity
+      diversity <- 1 - mean(sim_matrix, na.rm = TRUE)
+    }
+    
+    data.frame(
+      subject_id = df_adult$subject_id[1],
+      skip_count = total_skips,
+      semantic_diversity = diversity
+    )
+  })
+
+head(adult_diversity_metrics, 10L)
+
+```
+
+Combining child and adult diversity scores
+
+
+```{r}
+
+diversity_comparison <- rbind(
+  child_diversity_metrics %>% select(subject_id, semantic_diversity) %>% mutate(group = "child"),
+  adult_diversity_metrics %>% select(subject_id, semantic_diversity) %>% mutate(group = "adult")
+)
+
+ggplot(diversity_comparison, aes(x = semantic_diversity, fill = group)) +
+  geom_density(alpha = 0.5) + 
+  geom_boxplot(width = 0.1, position = position_nudge(y = -0.05), alpha = 0.3) + 
+  scale_fill_manual(values = c("child" = "#FF9999", "adult" = "#66B2FF")) +
+  theme_minimal() +
+  labs(title = "Is the Child's Self-Concept Less Diverse than the Adult's?",
+       subtitle = "Density Plot of Within-Subject Semantic Diversity",
+       x = "Semantic Diversity (1 - Mean Similarity)",
+       y = "Density")
+
+
+```
+
+```{r}
+
+t_result <- t.test(semantic_diversity ~ group, data = diversity_comparison)
+
+print(t_result)
+
+# cohen's d = 1.703564
+cohensD(semantic_diversity ~ group, data = diversity_comparison)
+
+```
+```{r verbosity confound test}
+
+# calculate word counts
+self_responses$word_count <- str_count(self_responses$response_clean, "\\w+")
+self_responses <- self_responses %>% 
+  select(subject_id, utterance, response_clean, word_count, everything())
+
+# aggregate to the subject level
+word_stats <- self_responses %>%
+  filter(!is_skip) %>%
+  group_by(subject_id) %>%
+  summarize(mean_word_count = mean(word_count, na.rm = TRUE))
+
+# join with metrics
+diversity_comparison <- diversity_comparison %>%
+  left_join(word_stats, by = "subject_id")
+
+# 4. The "Confound Check" Correlation
+confound_test <- cor.test(diversity_comparison$mean_word_count, 
+                          diversity_comparison$semantic_diversity)
+
+print(confound_test)
+
+# TODO---run this separately for adults and then children
+
+```
+```{r}
+
+# ANCOVA model
+# looking for the effect of 'group' (child vs adult) 
+# while 'holding constant' the mean_word_count
+
+ancova_model <- lm(semantic_diversity ~ mean_word_count + group, data = diversity_comparison)
+
+summary(ancova_model)
+
+# adjusted means (diversity scores AFTER controlling for word count)
+adj_means <- emmeans(ancova_model, "group")
+print(adj_means)
+```
+```{r}
+# calculate effect size 
+eta_squared(ancova_model, partial = TRUE)
+```
+
