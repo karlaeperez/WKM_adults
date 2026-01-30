@@ -1,0 +1,150 @@
+---
+title: "sequential_analysis"
+output: html_document
+---
+### Sequential Distance Analysis 
+
+In this analysis, we calculated the Sequential Distance between responses.<br> 
+**Formula: cosine distance = 1 — cosine similarity**
+
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load libraries
+library(tidyverse)
+library(readr)
+
+# import data 
+# self_vectors_all <- read_csv("data/self_vectors_all.csv")
+self_responses_ids <- read_csv("data/self_responses_ids.csv")
+```
+
+```{r sequential distances within participants}
+
+# subtract the cosine similarity (between each response and the one immediately preceding it) from 1.
+
+sequential_metrics <- self_responses_ids %>%
+  group_by(subject_id) %>% # within participant
+  filter(!is_skip) %>% # exclude skipped responses
+  arrange(utterance) %>%  # capture temporal order of responses
+  mutate(across(starts_with("Dim"), # shift vectors down by 1 row within each person
+                ~ lag(.), 
+                .names = "prev_{.col}")) %>%
+  filter(!is.na(prev_Dim1_texts)) %>% # remove the first row per person (since it has no 'previous' response)
+  rowwise() %>%
+  mutate(
+    
+    # extract current vector (Dim1_texts to Dim768_texts)
+    curr_vec = list(c_across(starts_with("Dim") & ends_with("_texts"))), 
+    
+    # extract previous vector (prev_Dim1_texts to prev_Dim768_texts)
+    prev_vec = list(c_across(starts_with("prev_Dim") & ends_with("_texts"))),
+    
+    # calculate cosine distance: 1 - cosine similarity
+    step_distance = 1 - (sum(curr_vec * prev_vec) / 
+                         (sqrt(sum(curr_vec^2)) * sqrt(sum(prev_vec^2))))
+  ) %>%
+  ungroup()
+
+```
+
+```{r mean sequential distance per person}
+
+# calculate mean distance per person, 1 value per participant
+
+subject_sequential <- sequential_metrics %>%
+  group_by(subject_id, age_group) %>%
+  summarise(
+    mean_step_distance = mean(step_distance, na.rm = TRUE),
+    total_steps = n(),
+    .groups = "drop"
+  )
+
+# subject_final <- subject_sequential %>% left_join(self_responses_ids, by = "subject_id")
+```
+
+
+```{r ANCOVA Age Group on Mean Step Distance}
+
+# does age group influence the size of an individual's semantic leaps?
+# df: subject_sequential -- contains (1) mean distance value per participant 
+
+model_sequential <- lm(mean_step_distance ~ age_group, data = subject_sequential)
+summary(model_sequential)
+
+```
+
+```{r}
+
+trajectory_data <- sequential_metrics %>%
+  group_by(subject_id, age_group) %>%
+  summarise(
+    mean_dist = mean(step_distance, na.rm = TRUE),
+    se_dist = sd(step_distance, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+ggplot(trajectory_data, aes(x = subject_id, y = mean_dist, color = age_group, group = age_group)) +
+  geom_errorbar(aes(ymin = mean_dist - se_dist, ymax = mean_dist + se_dist), width = 0.2, alpha = 0.4) +
+  geom_line(size = .6) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  scale_color_manual(values = c("adult" = "#2c7fb8", "child" = "#f03b20")) +
+  labs(
+    title = "Leaps in Self-Disclosure",
+    subtitle = "Each dot represents an individual particiapant's mean semantic leap",
+    x = "Participant",
+    y = "Mean Cosine Distance (Semantic Leap)",
+    color = "Age Group"
+  ) +
+  theme(legend.position = "bottom", text = element_text(size = 14),
+        axis.text.x = element_blank())
+
+```
+
+To illustrate these group-level trends, we selected a representative child and adult whose semantic diversity scores were closest to their respective group medians. This ensures that the qualitative examples reflect the central tendency of each age group rather than statistical outliers.
+
+```{r find representative participants}
+
+example_participants <- subject_sequential %>%
+  group_by(age_group) %>%
+  # find the median out of all participant's mean distance, per group
+  mutate(median_val = median(mean_step_distance)) %>%
+  # difference between each participant's mean and the group median 
+  mutate(dist_to_median = abs(mean_step_distance - median_val)) %>% 
+  # select the participant with the smallest distance
+  slice_min(dist_to_median, n = 3, with_ties = FALSE) %>%
+  select(subject_id, age_group, dist_to_median, mean_step_distance, median_val, total_steps)
+
+print(example_participants)
+
+```
+
+Finally, we graphed the distances in each step that our two exemplar participants took across all of their respective 12 responses.
+
+```{r}
+
+representative_steps <- sequential_metrics %>%
+  filter(subject_id %in% c(child_id, adult_id))
+
+ggplot(representative_steps, aes(x = utterance, y = step_distance, group = subject_id)) +
+  # Line color locked
+  geom_line(aes(color = age_group), size = 1.2) +
+  # Point fill locked, with black border
+  geom_point(aes(fill = age_group), size = 3, shape = 21, color = "black", stroke = 1) +
+  # Explicitly naming the groups here prevents flipping
+  scale_color_manual(values = c("adult" = "#2c7fb8", "child" = "#f03b20")) +
+  scale_fill_manual(values = c("adult" = "#2c7fb8", "child" = "#f03b20")) +
+  theme_minimal() +
+  scale_x_continuous(breaks = 2:12) +
+  labs(title = "Individual Comparison: Sequential Semantic Leaps",
+       x = "Transition (Distance to Fact #)",
+       y = "Cosine Distance",
+       color = "Age Group",
+       fill = "Age Group") +
+  theme(text = element_text(size = 14))
+
+```
+
+

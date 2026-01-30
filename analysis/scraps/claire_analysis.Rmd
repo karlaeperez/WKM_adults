@@ -1,0 +1,43 @@
+---
+title: "claire_analysis"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(text)
+library(here)
+library(reticulate)
+library(umap)
+library(viridis)
+library(plotly)
+
+# activate conda environment
+textrpp_initialize()
+
+```
+
+```{r load-data}
+data <- read_csv(here("../data/adult_data.csv"))
+
+intro_data <- data %>%
+  filter(trial_type == "survey-text") %>%
+  select(prolific_id, trial_index, response)
+```
+
+```{python}
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+print(r.intro_data['response'])
+
+embedding_data = list(model.encode(r.intro_data['response']))
+#embeddings = model.encode(sentences)
+```
+
+
+```{r get-embeddings}
+intro_embeddings <- py$embedding_data
+
+```
