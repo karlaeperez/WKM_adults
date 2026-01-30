@@ -41,8 +41,6 @@ children_ages <- anonymized_children %>%
 
 ```
 
-Questions to ask Claire + Robert
-- should i get rid of all punctuation in the adult responses?
 
 ```{r run all-distilroberta-v1, eval = FALSE}
 
@@ -111,20 +109,20 @@ child_diversity_metrics <- child_responses_age %>%
     diversity <- NA
     
     if(nrow(real_responses) >= 2) {
-      # 3. Use the numeric matrix math directly
-      # We extract the embedding columns (ignoring our metadata columns)
+      
+      # extract the embedding columns (ignoring our metadata columns)
       vectors <- as.matrix(real_responses[, 11:778])
       
-      # Manual Cosine Similarity Matrix:
-      # Normalize rows
+      # compute manual cosine similarity matrix
+      # normalize rows -- to isolate direction, ignore length of response 
       norm_vecs <- vectors / sqrt(rowSums(vectors^2))
-      # Dot product gives the similarity matrix
+      # dot product for the similarity matrix -- within adult comparison
       sim_matrix <- norm_vecs %*% t(norm_vecs)
       
-      # Remove self-similarity (the diagonal of 1s)
+      # remove self-similarity (the diagonal of 1s)
       diag(sim_matrix) <- NA
       
-      # Diversity = 1 - average similarity
+      # diversity = 1 - average similarity (avg pairwise cosine distance)
       diversity <- 1 - mean(sim_matrix, na.rm = TRUE)
     }
     
@@ -164,7 +162,7 @@ summary(interaction_model_children)
 
 ```
 ```{r}
-# Pearson Correlation for Age vs Diversity
+# pearson correlation (age vs diversity)
 cor_test_children <- cor.test(child_diversity_metrics$age, child_diversity_metrics$semantic_diversity)
 
 # does the number of skips predict how diverse their remaining thoughts are?
@@ -196,20 +194,20 @@ adult_diversity_metrics <- adult_responses %>%
     diversity <- NA
     
     if(nrow(real_responses) >= 2) {
-      # 3. Use the numeric matrix math directly
-      # We extract the embedding columns (ignoring our metadata columns)
+      
+      # extract the embedding columns 
       vectors <- as.matrix(real_responses[, 9:776])
       
-      # Manual Cosine Similarity Matrix:
-      # Normalize rows
+     
+      # normalize rows -- to isolate direction, ignore length of response 
       norm_vecs <- vectors / sqrt(rowSums(vectors^2))
-      # Dot product gives the similarity matrix
+      # dot product gives the similarity matrix -- within child comparison
       sim_matrix <- norm_vecs %*% t(norm_vecs)
       
-      # Remove self-similarity (the diagonal of 1s)
+      # remove self-similarity (the diagonal of 1s)
       diag(sim_matrix) <- NA
       
-      # Diversity = 1 - average similarity
+      # diversity = 1 - average similarity
       diversity <- 1 - mean(sim_matrix, na.rm = TRUE)
     }
     
@@ -239,7 +237,7 @@ ggplot(diversity_comparison, aes(x = semantic_diversity, fill = group)) +
   geom_boxplot(width = 0.1, position = position_nudge(y = -0.05), alpha = 0.3) + 
   scale_fill_manual(values = c("child" = "#FF9999", "adult" = "#66B2FF")) +
   theme_minimal() +
-  labs(title = "Is the Child's Self-Concept Less Diverse than the Adult's?",
+  labs(title = "The Child's Self-Concept is Less Diverse than the Adult's",
        subtitle = "Density Plot of Within-Subject Semantic Diversity",
        x = "Semantic Diversity (1 - Mean Similarity)",
        y = "Density")
@@ -270,11 +268,11 @@ word_stats <- self_responses %>%
   group_by(subject_id) %>%
   summarize(mean_word_count = mean(word_count, na.rm = TRUE))
 
-# join with metrics
+# join with diversity metrics
 diversity_comparison <- diversity_comparison %>%
   left_join(word_stats, by = "subject_id")
 
-# 4. The "Confound Check" Correlation
+# verbosity correlation?
 confound_test <- cor.test(diversity_comparison$mean_word_count, 
                           diversity_comparison$semantic_diversity)
 
