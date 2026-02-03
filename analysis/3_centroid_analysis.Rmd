@@ -1,0 +1,404 @@
+---
+title: "Centroid Analysis"
+output: pdf_document
+---
+
+```{r set up, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+# load libraries
+library(tidyverse)
+library(vegan) # for PERMDISP
+library(uwot) # for UMAP
+library(dbscan) # for island detection
+library(ggdist) # for visualization
+
+# import data 
+self_responses_ids <- read_csv("data/self_responses_ids.csv")
+
+```
+
+### calculate centroids
+
+In this analysis, we first calculated the individual centroids of each participant. (Here, we take the centroid to represent the average conceptual position of everything that a specific participant shared.) (also I did not need to do this bc I do this again but whatever)
+
+```{r calculate centroid for each participant}
+
+# calculate the mean position (centroid) for each participant
+participant_centroids <- self_responses_ids %>%
+  filter(!is_skip) %>%  
+  group_by(subject_id, age_group) %>%
+  summarise(across(starts_with("Dim"), mean, na.rm = TRUE), .groups = "drop")
+
+# 1 centroid (average vector of all vectorized responses) per participant
+print(participant_centroids)
+#dim(participant_centroids) # [1] 268 770
+
+```
+
+Then, we calculated the distance of each participant's response to their own centroid.
+
+```{r mean distance of individual's responses from their own centroid}
+
+intra_participant_distances <- self_responses_ids %>%
+  filter(!is_skip) %>%
+  group_by(subject_id, age_group) %>%
+  group_modify(~ {
+    
+    # get all vectors for this participant
+    vecs <- as.matrix(.x %>% select(starts_with("Dim")))
+    
+    # normalize em
+    norm_vecs <- vecs / sqrt(rowSums(vecs^2))
+    
+    # calculate this participant's centroid
+    centroid <- colMeans(norm_vecs)
+    
+    # calculate distance of each response to participant's centroid
+    dists_to_centroid <- 1 - (norm_vecs %*% centroid) # (1 - cosine similarity)
+    
+    tibble(mean_dist_to_self = mean(dists_to_centroid))
+  })
+
+intra_participant_distances
+```
+
+```{r}
+
+t.test(mean_dist_to_self ~ age_group, data = intra_participant_distances)
+
+```
+TODO--WRITE UP T TEST REPORT!!!
+
+```{r mean distance of centroids to each other within group}
+
+get_mean_group_distance <- function(centroid_df) {
+  
+  # extract vectors 
+  vecs <- as.matrix(centroid_df %>% select(starts_with("Dim")))
+  
+  # normalize vectors 
+  norm_vecs <- vecs / sqrt(rowSums(vecs^2))
+  
+  # dot product between vectors
+  sim_matrix <- norm_vecs %*% t(norm_vecs)
+  
+  # convert similarity to distance: distance = 1 - similarity
+  dist_matrix <- 1 - sim_matrix
+  
+  # only take the values above the diagonal (to avoid self-distance and duplicates)
+  return(mean(dist_matrix[upper.tri(dist_matrix)], na.rm = TRUE))
+}
+
+adult_distances <- get_mean_group_distance(participant_centroids %>% filter(age_group == "adult"))
+child_distances <- get_mean_group_distance(participant_centroids %>% filter(age_group == "child"))
+
+cat("Adult Inter-participant Distance:", adult_distances, "\n") # 0.02628904 
+cat("Child Inter-participant Distance:", child_distances, "\n") # 0.03238887 
+```
+
+### moment of truth... between group comparison (bootstrapped)
+
+Then, we compared the distance of each participant's centroid from other participants' within their respective age group.
+
+
+```{r boostrapping}
+
+set.seed(13126) # for reproducibility 
+adult_subsample_size <- 18
+n_iterations <- 10000
+
+boot_adult_dists <- replicate(n_iterations, {
+  participant_centroids %>% 
+    filter(age_group == "adult") %>% 
+    sample_n(adult_subsample_size) %>% 
+    get_mean_group_distance()
+})
+
+cat("Mean Adult Dist (Bootstrapped):", mean(boot_adult_dists), "\n")
+cat("Actual Child Distance:", child_distances, "\n")
+cat("Empirical p-value:", sum(boot_adult_dists >= child_distances) / 10000, "\n")
+```
+
+```{r CI bootstrap}
+boot_ci <- quantile(boot_adult_dists, probs = c(0.025, 0.975))
+boot_ci
+```
+
+```{r visualize null distribution, eval=F}
+
+plot_boot_dist <- data.frame(dist = boot_adult_dists)
+
+ggplot(plot_boot_dist, aes(x = dist)) +
+  geom_histogram(bins = 50, fill = "#648FFF", alpha = 0.7) +
+  geom_vline(xintercept = child_distances, color = "#FE6100", linetype = "dashed", size = 1) +
+  theme_minimal() +
+  labs(title = "Null Distribution of Adult Inter-participant Distances",
+       subtitle = "The orange line represents the actual mean child distance",
+       x = "Mean Pairwise Distance",
+       y = "Frequency")
+```
+
+To assess semantic distance between participants' centroids and their group centroid, we first L2-normalized the centroids to account for differences in response magnitude. We then calculated the pairwise Euclidean distances between these normalized vectors, a transformation that is monotonically related to cosine distance and ensures that our dispersion analysis reflects differences in conceptual direction rather than vector length. 
+
+```{r PERMDISP}
+
+# pull each participant's centroid
+vec_matrix <- as.matrix(participant_centroids %>% select(starts_with("Dim")))
+age_labels <- participant_centroids$age_group
+
+# L2 (Euclidean) normalize participants' centroids (scales the vector so that its total length/magnitude is exactly 1)
+norm_vecs <- vec_matrix / sqrt(rowSums(vec_matrix^2)) 
+# technically, Euclidean distance, but normalized above so equiv. to cosine distance
+dist_mat <- dist(norm_vecs)
+
+disp_test <- betadisper(dist_mat, age_labels)
+permutest(disp_test)
+
+```
+To examine whether the groups differed in their overall semantic variability, we conducted a permutation test for homogeneity of multivariate dispersions (PERMDISP) on the participant centroids. The analysis indicated that there was no significant difference in the multivariate dispersion between children and adults ($F(1, 266) = 2.14, p = .13$, based on 999 permutations). This suggests that the groups occupy a similar 'semantic volume' in the embedding space, despite their different conceptual locations.
+
+### visualize
+
+So, here is a UMAP visualization of the participant centroids... not sure what to make of it. Does not look very meaningful to me.
+
+
+### UMAP of raw vectors
+
+```{r}
+set.seed(2026)
+
+# pull raw vectors 
+raw_vec_matrix <- as.matrix(self_responses_ids %>% 
+                              filter(!is_skip) %>% 
+                              select(starts_with("Dim")))
+
+# run UMAP on raw vectors
+umap_raw <- umap(raw_vec_matrix, 
+                 n_neighbors = 15,    
+                 min_dist = 0.1,
+                 metric = "cosine")
+
+umap_raw_df <- data.frame(
+  U1 = umap_raw[,1], 
+  U2 = umap_raw[,2], 
+  subject_id = (self_responses_ids %>% filter(!is_skip))$subject_id,
+  age_group = (self_responses_ids %>% filter(!is_skip))$age_group
+)
+
+```
+
+
+# graph all participants
+
+
+
+```{r better visualize adult responses}
+
+set.seed(1326) 
+
+# subset 18 adults
+sampled_adult_ids <- umap_raw_df %>% 
+  filter(age_group == "adult") %>% 
+  pull(subject_id) %>% 
+  unique() %>% 
+  sample(18)
+
+
+ggplot(umap_raw_df, aes(x = U1, y = U2)) +
+  
+  # non sub-sampled adults in dark gray
+  geom_point(data = filter(umap_raw_df, age_group == "child"), 
+             color = "gray90", alpha = 0.5, size = 1) +
+  
+  # non sub-sampled adults in light gray
+  geom_point(data = filter(umap_raw_df, age_group == "adult", !(subject_id %in% sampled_adult_ids)), 
+             color = "gray90", alpha = 0.5, size = 1) +
+  
+  # sampled adults colored by subject_id
+  geom_point(data = filter(umap_raw_df, subject_id %in% sampled_adult_ids), 
+             aes(color = as.factor(subject_id)), alpha = 0.8, size = 2) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.background = element_rect(fill = "white", color = NA)) +
+  labs(title = "Adult responses",
+       subtitle = "points represent all responses for a random subset of 18 adults, colored by subject_id")
+```
+```{r}
+ggplot(umap_raw_df, aes(x = U1, y = U2)) +
+  
+  geom_point(data = filter(umap_raw_df, age_group == "adult"), 
+             color = "gray90", alpha = 0.5, size = 1) +
+  
+  # non sub-sampled adults in dark gray
+  geom_point(data = filter(umap_raw_df, age_group == "child"), 
+             aes(color = as.factor(subject_id)), alpha = 0.8, size = 2) +
+  
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.background = element_rect(fill = "white", color = NA)) +
+  labs(title = "Child Responses",
+       subtitle = "points represent all child responses, colored by subject_id")
+```
+
+
+
+
+
+
+```{r}
+
+library(tidyverse)
+
+# 1. Calculate the hull points for each participant
+hulls <- umap_raw_df %>%
+  filter(subject_id %in% sampled_adult_ids | age_group == "child") %>%
+  group_by(subject_id) %>%
+  slice_sample(prop = 0.5) %>%
+  # chull returns the row indices of the points on the perimeter
+  slice(chull(U1, U2)) 
+
+# 2. Plot
+ggplot(umap_raw_df, aes(x = U1, y = U2)) +
+  
+  # Background: non-sampled adults
+  geom_point(data = filter(umap_raw_df, age_group == "adult", !(subject_id %in% sampled_adult_ids)), 
+             color = "gray90", alpha = 0.1, size = 1) +
+  
+  # The Perimeters (Polygons)
+  geom_polygon(data = hulls, 
+               aes(group = subject_id, fill = age_group, color = age_group), 
+               alpha = 0.05, size = .3) +
+  
+  # Individual points
+  geom_point(data = filter(umap_raw_df, subject_id %in% sampled_adult_ids | age_group == "child"),
+             aes(color = age_group), alpha = 0.5, size = 1.5) +
+  
+  scale_color_manual(values = c("adult" = "#648FFF", "child" = "#FE6100")) +
+  scale_fill_manual(values = c("adult" = "#648FFF", "child" = "#FE6100")) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  labs(title = "Semantic Space per Participant",
+       subtitle = "Polygons show the 'territory' of individual participants")
+
+
+
+```
+
+
+### Pairwise Individual Centroid Comparisons within Group
+
+Notes from meeting with Claire <br>
+<br>calculate centroid of each participant 
+<br>see if one distribution is wider than the other
+<br>pairwise distances between each pair of participants within a group
+<br>then do a t test between the sets
+
+
+```{r}
+
+centroid_group_distances <- function(df) {
+
+  mat <- as.matrix(df %>% select(starts_with("Dim")))
+  
+  # normalize rows for cosine similarity
+  norm_mat <- mat / sqrt(rowSums(mat^2))
+  
+  # similarity matrix (A * A_transpose)
+  sim_mat <- tcrossprod(norm_mat)
+  
+  # distance calculation
+  dist_mat <- 1 - sim_mat
+  
+  # make sure not comparing to self
+  return(dist_mat[upper.tri(dist_mat)])
+}
+
+# separate centroids by group
+adult_list <- participant_centroids %>% filter(age_group == "adult")
+child_list <- participant_centroids %>% filter(age_group == "child")
+
+# calculate distance between individuals' centroids within group
+adult_distances_centroid <- centroid_group_distances(adult_list)
+child_distances_centroid <- centroid_group_distances(child_list)
+
+```
+
+
+## prep child mean for bootstrapping comparison
+
+```{r}
+
+set.seed(13126) 
+n_iterations <- 10000
+adult_subsample_size <- 18 
+
+boot_adult_dists <- replicate(n_iterations, {
+  participant_centroids %>% 
+    filter(age_group == "adult") %>% 
+    sample_n(adult_subsample_size) %>% 
+    centroid_group_distances() # Uses your pairwise distance function
+})
+
+
+child_obs_dist <- centroid_group_distances(participant_centroids %>% filter(age_group == "child"))
+
+p_val_emp <- sum(boot_adult_dists >= child_obs_dist) / n_iterations
+
+cat("--- Bootstrap Results ---\n")
+cat("Mean Adult Distance (Bootstrapped):", mean(boot_adult_dists), "\n")
+cat("Actual Child Distance:", child_obs_dist, "\n")
+cat("Empirical p-value:", p_val_emp, "\n")
+
+
+```
+
+
+```{r}
+
+# plot_df <- data.frame(dist = as.numeric(boot_adult_dists))
+# 
+# ggplot(plot_df, aes(x = dist)) +
+#   geom_histogram(bins = 50, fill = "#648FFF", alpha = 0.7) + # Adult Null Dist
+#   geom_vline(xintercept = child_obs_dist, color = "#FE6100", 
+#              linetype = "dashed", size = 1.2) +
+#   theme_minimal() +
+#   labs(title = "Idiosyncrasy: Children vs. Adult Null Distribution",
+#        subtitle = "Orange line = Children; Blue distribution = Bootstrapped Adults",
+#        x = "Mean Inter-participant Distance (Cosine)",
+#        y = "Frequency")
+```
+
+```{r}
+
+# is the average distance between children greater than between adults?
+t_test_results <- t.test(child_distances_centroid, adult_distances_centroid)
+print(t_test_results)
+
+
+```
+
+```{r}
+dist_df <- rbind(
+  data.frame(dist = adult_distances, group = "adult"),
+  data.frame(dist = child_distances, group = "child"))
+
+
+
+ggplot(dist_df, aes(x = dist, fill = group)) +
+  geom_density(alpha = 0.6) +
+  scale_fill_manual(values = c("adult" = "#2c7fb8", "child" = "#f03b20")) +
+  theme_minimal() +
+  labs(title = "Distribution of Pairwise Distances Between Participants",
+       subtitle = "Higher values indicate more idiosyncratic/diverse group members",
+       x = "Cosine Distance (1 - Similarity)", y = "Density")
+
+# permutation test
+# take a random sample of adults, multiple times
+# run 100 t tests, report t tests from these test
+# bcause differences in sample size ---- repeated test (still report actual test)
+```
+
+
+

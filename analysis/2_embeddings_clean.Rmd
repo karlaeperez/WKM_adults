@@ -116,7 +116,7 @@ child_diversity_metrics <- child_responses_age %>%
       # compute manual cosine similarity matrix
       # normalize rows -- to isolate direction, ignore length of response 
       norm_vecs <- vectors / sqrt(rowSums(vectors^2))
-      # dot product for the similarity matrix -- within adult comparison
+      # dot product for the similarity matrix -- within participant comparison
       sim_matrix <- norm_vecs %*% t(norm_vecs)
       
       # remove self-similarity (the diagonal of 1s)

@@ -1,0 +1,14 @@
+---
+title: "sandbox"
+output: html_document
+---
+
+
+```{r sandbox}
+
+v1 <- c(1, 2, 3)
+v2 <- c(4, 5, 6)
+
+# two methods for calculating the dot product of two vectors
+v1 %*% v2 == sum((v1 * v2))
+```

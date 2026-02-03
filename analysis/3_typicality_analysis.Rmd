@@ -1,0 +1,105 @@
+---
+title: "3_typicality_analysis"
+output: html_document
+---
+
+```{r}
+
+```
+
+```{r}
+
+vector_cols <- 11:778 
+
+# prototypical adult 
+adult_prototype <- self_responses_ids %>%
+  filter(age_group == "adult", !is_skip) %>%
+  select(all_of(vector_cols)) %>%
+  summarise(across(everything(), mean, na.rm = TRUE)) %>%
+  as.matrix()
+
+# normalize prototype (to ensure we are comparing angles, not length)
+adult_prototype_norm <- adult_prototype / sqrt(sum(adult_prototype^2)) # dim = 1 768
+
+# calculate typicality for every participant
+participant_typicality <- self_responses_ids %>%
+  filter(!is_skip) %>%
+  group_by(subject_id, age_group) %>%
+  group_modify(~ {
+    
+    # extract this participant's vectors
+    vecs <- as.matrix(.x %>% select(starts_with("Dim")))
+    
+    # normalize this participant's vectors
+    norm_vecs <- vecs / sqrt(rowSums(vecs^2))
+    
+    # calculate cosine similarity of each response to the adult prototype
+    similarities <- norm_vecs %*% t(adult_prototype_norm)
+    
+    # return participants' mean similarity (of all their responses to the adult proto) as their 'typicality' score
+    tibble(typicality_score = mean(similarities, na.rm = TRUE))
+  }) %>%
+  ungroup()
+
+print(participant_typicality)
+```
+
+
+```{r}
+t.test(typicality_score ~ age_group, data = participant_typicality)
+```
+
+
+```{r}
+
+combined_metrics <- participant_typicality %>%
+  inner_join(participant_similarity_metrics %>% 
+               select(subject_id, semantic_similarity), 
+             by = "subject_id")
+
+# 2. Calculate the correlation for each group separately
+# (Because the relationship might be different for kids than for adults!)
+cor_by_group <- combined_metrics %>%
+  group_by(age_group) %>%
+  summarise(
+    r = cor(typicality_score, semantic_similarity, method = "pearson", use = "complete.obs"),
+    p = cor.test(typicality_score, semantic_similarity)$p.value
+  )
+
+print(cor_by_group)
+```
+
+
+```{r}
+ggplot(combined_metrics, aes(x = typicality_score, y = semantic_similarity, color = age_group)) +
+  geom_point(alpha = 0.5, size = 2) +
+  geom_smooth(method = "lm", se = TRUE) + # Add trend lines
+  scale_color_manual(values = c("adult" = "#2c7fb8", "child" = "#f03b20")) +
+  theme_minimal() +
+  labs(
+    title = "The 'Small, Unique World' Correlation",
+    subtitle = "Relationship between being normative (Typicality) and being focused (Internal Similarity)",
+    x = "Typicality (Similarity to Adult Norm)",
+    y = "Internal Similarity (Self-Consistency)"
+  )
+```
+
+```{r}
+# does the effect of internal similarity on global typicality change with age?
+model <- lm(typicality_score ~ semantic_similarity * age_group, data = combined_metrics)
+summary(model)
+```
+```{r}
+ggplot(combined_metrics, aes(x = semantic_similarity, y = typicality_score, color = age_group)) +
+  geom_point(alpha = 0.6, size = 3) +
+  geom_smooth(method = "lm", formula = y ~ x) +
+  scale_color_manual(values = c("adult" = "#2c7fb8", "child" = "#f03b20")) +
+  theme_minimal() +
+  labs(
+    title = "The Structure of the Self: Internal Focus vs. Social Normativity",
+    x = "Internal Similarity (How focused are your thoughts?)",
+    y = "Typicality (How 'Adult' are your thoughts?)",
+    color = "Age Group"
+  )
+```
+

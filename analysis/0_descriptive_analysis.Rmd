@@ -1,0 +1,79 @@
+---
+title: "0_descriptive_analysis"
+output: html_document
+---
+
+```{r}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# load libraries
+library(tidyverse)
+library(readr)
+# library(lme4)
+# library(lmerTest)
+# library(performance)
+
+# import data 
+self_responses_ids <- read_csv("data/self_responses_ids.csv")
+```
+
+We started by comparing the mean verbosity (word count per disclosure) between groups to see whether semantic structural differences might be driven by response length. Children ($M = 7.97$, $SD = 4.61$) and adults ($M = 6.811$, $SD = 6.25$) did not differ significantly in their average verbosity, $t(235.57) = 1.04, p = .298$. A 10,000-iteration bootstrap confirmed this null result, with the child mean falling well within the adult null distribution ($p_{emp} = .587$).
+
+
+```{r verbosity test}
+
+t.test(self_responses_ids %>% filter(age_group == "adult", is_skip == "FALSE") %>% select(word_count), 
+       self_responses_ids %>% filter(age_group == "child", is_skip == "FALSE") %>% select(word_count))
+
+```
+
+There was no significant difference in Children's ($M = 7.97$, $SD = 4.61$) and Adults' ($M = 6.811$, $SD = 6.25$) verbosity,
+$t(235.57) = 1.04, p = .298$.
+
+
+```{r}
+
+verbosity_df <- self_responses_ids %>%
+  filter(!is_skip) %>%
+  group_by(subject_id, age_group) %>%
+  summarise(mean_word_count = mean(word_count), .groups = "drop")
+
+
+child_verbosity_obs <- verbosity_df %>% 
+  filter(age_group == "child") %>% 
+  pull(mean_word_count) %>% 
+  mean()
+
+set.seed(420376)
+
+boot_adult_verbosity <- replicate(10000, {
+  verbosity_df %>%
+    filter(age_group == "adult") %>%
+    sample_n(18) %>%
+    pull(mean_word_count) %>%
+    mean()
+})
+
+
+p_val_verb <- sum(boot_adult_verbosity >= child_verbosity_obs) / 10000
+
+p_val_verb
+```
+
+```{r}
+
+verbosity_df %>%
+  group_by(age_group) %>%
+  summarise(
+    mean_wc = mean(mean_word_count),
+    sd_wc = sd(mean_word_count),
+    n = n())
+
+```
+
+```{r}
+
+
+```
+
