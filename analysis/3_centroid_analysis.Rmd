@@ -24,7 +24,7 @@ self_responses_ids <- read_csv("data/self_responses_ids.csv")
 In this analysis, we first calculated the individual centroids of each participant. (Here, we take the centroid to represent the average conceptual position of everything that a specific participant shared.) (also I did not need to do this bc I do this again but whatever)
 
 ```{r calculate centroid for each participant}
-
+responses_size
 # calculate the mean position (centroid) for each participant
 participant_centroids <- self_responses_ids %>%
   filter(!is_skip) %>%  
@@ -124,6 +124,29 @@ cat("Empirical p-value:", sum(boot_adult_dists >= child_distances) / 10000, "\n"
 ```{r CI bootstrap}
 boot_ci <- quantile(boot_adult_dists, probs = c(0.025, 0.975))
 boot_ci
+```
+
+```{r}
+# 1. Get the list of child IDs
+child_ids <- participant_centroids %>% 
+  filter(age_group == "child") %>% 
+  pull(subject_id)
+
+# 2. Run the LOO loop using your "get_mean_group_distance" function
+loo_results <- map_df(child_ids, function(exclude_id) {
+  
+  # Filter out one child
+  temp_df <- participant_centroids %>% 
+    filter(age_group == "child", subject_id != exclude_id)
+  
+  # Calculate mean distance for the remaining 17
+  dist_val <- get_mean_group_distance(temp_df) 
+  
+  tibble(excluded_subject = exclude_id, remaining_mean_dist = dist_val)
+})
+
+# 3. Check the stability
+summary(loo_results$remaining_mean_dist)
 ```
 
 ```{r visualize null distribution, eval=F}

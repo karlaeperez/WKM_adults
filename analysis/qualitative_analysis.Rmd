@@ -1,0 +1,190 @@
+---
+title: "qualitative_analysis"
+output: html_document
+---
+
+```{r}
+
+library(readr)
+library(tidyverse)
+
+data_adults_qual <- read_csv("~/Documents/projects/self-disclosure/data/DO_NOT_SHARE/data_adults_qual.csv")
+data_children_qual <- read_csv("~/Documents/projects/self-disclosure/data/DO_NOT_SHARE/data_children_qual.csv")
+
+rbind(data_adults_qual, data_children_qual)
+
+adt <- data_adults_qual %>% 
+  select(subject_id, 15:26, age_at_test)
+
+chld <- data_children_qual %>% 
+  select(subject_id, 19:30, age_at_test)
+
+cmb <- rbind(adt, chld)
+
+
+
+```
+
+
+```{r}
+
+
+participant_counts <- cmb %>%
+  # Temporarily reshape to long format to count across columns
+  pivot_longer(cols = starts_with("topic"), values_to = "topic") %>%
+  # Exclude "NR" from the count
+  filter(topic != "NR") %>%
+  # Group by participant and count unique topics
+  group_by(subject_id, age) %>%
+  summarise(unique_topic_count = n_distinct(topic))
+
+# 3. Join back to the raw data to keep it unsummarized
+chld_tops <- participant_counts %>%
+  left_join(participant_counts, by = "subject_id")
+
+adults_tops %>% 
+  summarise(mean())
+
+cor.test(chld_tops$unique_topic_count.x, chld_tops$age_at_test.x, method = "pearson")
+
+# View the result
+print(df_final %>% select(subject_id, unique_topic_count, everything()))
+```
+
+
+
+```{r}
+4
+4
+15
+WKM_251031_01
+3
+3
+16
+WKM_251031_02
+4
+4
+17
+WKM_251031_03
+3
+3
+18
+WKM_251031_04
+7
+7
+19
+WKM_251105_01
+10
+10
+20
+WKM_251105_02
+2
+2
+21
+WKM_251107_01
+5
+5
+22
+WKM_251107_02
+7
+7
+23
+WKM_251107_03
+4
+4
+24
+WKM_251107_04
+6
+6
+25
+WKM_251110_01
+5
+5
+26
+WKM_251110_02
+6
+6
+27
+WKM_251110_03
+4
+4
+28
+WKM_251110_04
+9
+```
+
+```{r}
+```
+
+```{r}
+
+adults_abstract <- data_adults_qual %>% 
+  select(1:14)
+
+children_abstract <- data_children_qual %>%
+  select(subject_id, age_at_test, starts_with("response_")) %>% 
+  rename(age = age_at_test)
+  
+
+```
+
+
+```{r}
+
+qual_combined_df <- rbind(adults_abstract, children_abstract)
+qual_combined_df <- qual_combined_df %>% 
+  pivot_longer(cols = starts_with("response_"), names_to = "utterance", names_prefix = "response_", values_to = "score")
+
+qual_combined_df
+```
+
+```{r}
+
+adults_qual <- qual_combined_df %>% 
+  filter(age > 10) %>% 
+  mutate(age_group = "adult")
+
+children_qual <- qual_combined_df %>% 
+  filter(age < 10) %>% 
+  mutate(age_group = "child")
+
+age_grouped <- rbind(adults_qual, children_qual)
+
+age_grouped %>% 
+  group_by(age_group) %>% 
+  summarise(mean_score = mean(score), sd_score = sd(score))
+
+
+
+```
+
+```{r}
+
+t.test(adults_qual$score, children_qual$score)
+
+```
+$t(214.59) = 11.70, p < .001$
+($M_{children} = 3.62, SD_{children} = 1.97$)
+($M_{adults} = 5.52, SD_{adults} = 0.75$)
+
+# WHAT UMAP MEANS
+# describe SBERT
+
+```{r}
+
+age_abstractness <- lm(score ~ age, data = children_qual)
+
+# 3. Get the summary of the model
+summary(age_abstractness)
+```
+
+
+
+Adults produced more abstract utterances ($M = 5.52, SD = 0.75$) than children ($M = 3.62, SD = 1.97$), $t(214.59) = 11.70, p < .001$. Within the child data, a linear regression revealed that age significantly predicted abstractness scores ($\beta = 0.96, t(166) = 4.31, p < .001, R^2 = .10$), with each one-year increase in age corresponding to nearly a one-point increase in score. This suggests a clear developmental trajectory toward abstract language prior to reaching adult-like levels.
+
+
+```{r}
+
+```
+
+
